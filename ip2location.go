@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-
-	"github.com/oschwald/geoip2-golang"
 )
 
 // Headers part of the configuration
@@ -57,12 +55,12 @@ func CreateConfig() *Config {
 	}
 }
 
-// GeoIP plugin using MaxMind GeoIP2 database.
+// GeoIP plugin using MaxMind GeoIP2 database (no external dependencies).
 type GeoIP struct {
 	next               http.Handler
 	name               string
 	fromHeader         string
-	db                 *geoip2.Reader
+	db                 *MMDBReader
 	headers            Headers
 	disableErrorHeader bool
 	useXForwardedFor   bool
@@ -76,7 +74,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		return nil, fmt.Errorf("filename is required")
 	}
 
-	db, err := geoip2.Open(config.Filename)
+	db, err := OpenMMDB(config.Filename)
 	if err != nil {
 		return nil, fmt.Errorf("error opening MaxMind database file: %w", err)
 	}
@@ -136,7 +134,7 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	record, err := g.db.City(ip)
+	record, err := g.db.LookupIP(ip)
 	if err != nil {
 		if !g.disableErrorHeader {
 			req.Header.Set("X-GEOIP-ERROR", fmt.Sprintf("database lookup failed: %v", err))
@@ -248,7 +246,7 @@ func (g *GeoIP) isTrustedProxy(remoteAddr string) bool {
 	return false
 }
 
-func (g *GeoIP) addHeaders(req *http.Request, record *geoip2.City) {
+func (g *GeoIP) addHeaders(req *http.Request, record *GeoIP2Record) {
 	// Country
 	if g.headers.CountryCode != "" && record.Country.IsoCode != "" {
 		req.Header.Set(g.headers.CountryCode, record.Country.IsoCode)

@@ -242,6 +242,10 @@ MaxMind databases are updated regularly. You can:
 - Go 1.21 or higher (for building from source)
 - MaxMind GeoIP2 database file (.mmdb format)
 
+## No External Dependencies
+
+This plugin is designed to work with Traefik's plugin system, which does not support external Go module dependencies. The plugin includes a built-in MMDB reader implementation using only Go's standard library. This ensures compatibility with Traefik's plugin loading mechanism.
+
 ## Building from Source
 
 ```bash
@@ -306,7 +310,8 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Notes
 
-- The plugin uses MaxMind's official GeoIP2 Go library
+- The plugin includes a built-in MMDB reader (no external dependencies)
 - Database lookups are thread-safe and efficient
 - The plugin maintains backward compatibility with legacy field names
 - Error headers use `X-GEOIP-ERROR` (changed from `X-IP2LOCATION-ERROR`)
+- Compatible with Traefik's plugin system (no external Go module dependencies required)
