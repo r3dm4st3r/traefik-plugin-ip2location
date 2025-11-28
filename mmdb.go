@@ -443,6 +443,8 @@ func float64FromBits(bits uint64) float64 {
 
 // parseGeoIP2Data parses GeoIP2 data structure
 func (r *MMDBReader) parseGeoIP2Data(data map[string]interface{}, record *GeoIP2Record) {
+	// Debug: log available keys (remove in production)
+	// fmt.Printf("DEBUG: Available keys in data: %v\n", getKeys(data))
 	if country, ok := data["country"].(map[string]interface{}); ok {
 		if isoCode, ok := country["iso_code"].(string); ok {
 			record.Country.IsoCode = isoCode
@@ -523,11 +525,24 @@ func (r *MMDBReader) parseGeoIP2Data(data map[string]interface{}, record *GeoIP2
 		}
 	}
 
+	// Check for ASN data at root level (for ASN databases)
+	if asn, ok := data["autonomous_system_number"].(uint32); ok {
+		record.Traits.AutonomousSystemNumber = uint(asn)
+	} else if asn, ok := data["autonomous_system_number"].(uint64); ok {
+		record.Traits.AutonomousSystemNumber = uint(asn)
+	}
+	if asnOrg, ok := data["autonomous_system_organization"].(string); ok {
+		record.Traits.AutonomousSystemOrganization = asnOrg
+	}
+	
+	// Check for traits map (for City/Country databases)
 	if traits, ok := data["traits"].(map[string]interface{}); ok {
 		if isp, ok := traits["isp"].(string); ok {
 			record.Traits.ISP = isp
 		}
 		if asn, ok := traits["autonomous_system_number"].(uint32); ok {
+			record.Traits.AutonomousSystemNumber = uint(asn)
+		} else if asn, ok := traits["autonomous_system_number"].(uint64); ok {
 			record.Traits.AutonomousSystemNumber = uint(asn)
 		}
 		if asnOrg, ok := traits["autonomous_system_organization"].(string); ok {
@@ -555,28 +570,46 @@ func (r *MMDBReader) readMetadata() (*MMDBMetadata, uint32, error) {
 
 	fileSize := fileInfo.Size()
 	
-	// Search backwards for metadata marker (0xAB 0xCD 0xEF MaxMind.DB)
-	marker := []byte{0xAB, 0xCD, 0xEF, 0x4D, 0x61, 0x78, 0x4D, 0x69, 0x6E, 0x64, 0x2E, 0x63, 0x6F, 0x6D}
+	// MMDB metadata is at the end of the file, preceded by marker "MaxMind.DB"
+	// Search backwards from the end (metadata is typically in last 128KB)
+	marker := []byte{0x4D, 0x61, 0x78, 0x4D, 0x69, 0x6E, 0x64, 0x2E, 0x63, 0x6F, 0x6D} // "MaxMind.com"
 	markerLen := len(marker)
 	
 	var metadataOffset int64 = -1
-	buf := make([]byte, 4096)
+	searchSize := int64(128 * 1024) // Search last 128KB
+	if fileSize < searchSize {
+		searchSize = fileSize
+	}
 	
-	for offset := fileSize - int64(markerLen) - 128*1024; offset >= 0 && offset >= fileSize-128*1024; offset-- {
-		r.file.ReadAt(buf, offset)
-		for i := 0; i <= len(buf)-markerLen; i++ {
-			if string(buf[i:i+markerLen]) == string(marker) {
-				metadataOffset = offset + int64(i) + int64(markerLen)
+	// Read the last portion of the file
+	buf := make([]byte, searchSize)
+	readOffset := fileSize - searchSize
+	if readOffset < 0 {
+		readOffset = 0
+	}
+	
+	_, err = r.file.ReadAt(buf, readOffset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to read file end: %w", err)
+	}
+	
+	// Search for marker in the buffer
+	for i := len(buf) - markerLen; i >= 0; i-- {
+		match := true
+		for j := 0; j < markerLen; j++ {
+			if buf[i+j] != marker[j] {
+				match = false
 				break
 			}
 		}
-		if metadataOffset != -1 {
+		if match {
+			metadataOffset = readOffset + int64(i) + int64(markerLen)
 			break
 		}
 	}
 	
 	if metadataOffset == -1 {
-		return nil, 0, fmt.Errorf("metadata marker not found")
+		return nil, 0, fmt.Errorf("metadata marker not found in file")
 	}
 	
 	r.file.Seek(metadataOffset, 0)
@@ -615,7 +648,7 @@ func (r *MMDBReader) readMetadata() (*MMDBMetadata, uint32, error) {
 	binary.Read(r.file, binary.BigEndian, &metadata.IPVersion)
 	
 	// Calculate data section start (simplified)
-	dataStart = uint32(metadata.NodeCount) * uint32(metadata.RecordSize) * 2
+	dataStart := uint32(metadata.NodeCount) * uint32(metadata.RecordSize) * 2
 	
 	return metadata, dataStart, nil
 }
