@@ -1,7 +1,7 @@
 displayName: ip2location plugin
 type: middleware
 
-import: github.com/negasus/traefik-plugin-ip2location
+import: github.com/r3dm4st3r/traefik-plugin-ip2location
 
 summary: '[ip2location] Add Geo Headers'
 

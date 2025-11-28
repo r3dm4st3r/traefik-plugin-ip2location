@@ -25,7 +25,7 @@ For Traefik v3, plugins are configured using the static configuration. Here's an
 experimental:
   plugins:
     ip2location:
-      moduleName: github.com/negasus/traefik-plugin-ip2location
+      moduleName: github.com/r3dm4st3r/traefik-plugin-ip2location
       version: v0.2.0
 ```
 
