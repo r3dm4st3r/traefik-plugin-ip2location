@@ -121,6 +121,7 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		if !g.disableErrorHeader {
 			req.Header.Set("X-GEOIP-ERROR", err.Error())
+			rw.Header().Set("X-GEOIP-ERROR", err.Error())
 		}
 		g.next.ServeHTTP(rw, req)
 		return
@@ -129,6 +130,7 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if ip == nil {
 		if !g.disableErrorHeader {
 			req.Header.Set("X-GEOIP-ERROR", "could not determine client IP")
+			rw.Header().Set("X-GEOIP-ERROR", "could not determine client IP")
 		}
 		g.next.ServeHTTP(rw, req)
 		return
@@ -137,13 +139,19 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	record, err := g.db.LookupIP(ip)
 	if err != nil {
 		if !g.disableErrorHeader {
-			req.Header.Set("X-GEOIP-ERROR", fmt.Sprintf("database lookup failed: %v", err))
+			errorMsg := fmt.Sprintf("database lookup failed: %v", err)
+			req.Header.Set("X-GEOIP-ERROR", errorMsg)
+			rw.Header().Set("X-GEOIP-ERROR", errorMsg)
 		}
 		g.next.ServeHTTP(rw, req)
 		return
 	}
 
+	// Add headers to request (for backend services)
 	g.addHeaders(req, record)
+
+	// Also add headers to response (for client)
+	g.addResponseHeaders(rw, record)
 
 	g.next.ServeHTTP(rw, req)
 }
@@ -327,5 +335,89 @@ func (g *GeoIP) addHeaders(req *http.Request, record *GeoIP2Record) {
 	}
 	if g.headers.UserType != "" && record.Traits.UserType != "" {
 		req.Header.Set(g.headers.UserType, record.Traits.UserType)
+	}
+}
+
+func (g *GeoIP) addResponseHeaders(rw http.ResponseWriter, record *GeoIP2Record) {
+	// Country
+	if g.headers.CountryCode != "" && record.Country.IsoCode != "" {
+		rw.Header().Set(g.headers.CountryCode, record.Country.IsoCode)
+	}
+	if g.headers.CountryName != "" && record.Country.Names["en"] != "" {
+		rw.Header().Set(g.headers.CountryName, record.Country.Names["en"])
+	}
+	// Legacy country fields
+	if g.headers.CountryShort != "" && record.Country.IsoCode != "" {
+		rw.Header().Set(g.headers.CountryShort, record.Country.IsoCode)
+	}
+	if g.headers.CountryLong != "" && record.Country.Names["en"] != "" {
+		rw.Header().Set(g.headers.CountryLong, record.Country.Names["en"])
+	}
+
+	// Continent
+	if g.headers.ContinentCode != "" && record.Continent.Code != "" {
+		rw.Header().Set(g.headers.ContinentCode, record.Continent.Code)
+	}
+	if g.headers.ContinentName != "" && record.Continent.Names["en"] != "" {
+		rw.Header().Set(g.headers.ContinentName, record.Continent.Names["en"])
+	}
+
+	// Subdivision (Region/State)
+	if len(record.Subdivisions) > 0 {
+		subdivision := record.Subdivisions[0]
+		if g.headers.Region != "" && subdivision.Names["en"] != "" {
+			rw.Header().Set(g.headers.Region, subdivision.Names["en"])
+		}
+		if g.headers.RegionCode != "" && subdivision.IsoCode != "" {
+			rw.Header().Set(g.headers.RegionCode, subdivision.IsoCode)
+		}
+	}
+
+	// City
+	if g.headers.City != "" && record.City.Names["en"] != "" {
+		rw.Header().Set(g.headers.City, record.City.Names["en"])
+	}
+
+	// Postal Code
+	if g.headers.PostalCode != "" && record.Postal.Code != "" {
+		rw.Header().Set(g.headers.PostalCode, record.Postal.Code)
+	}
+	// Legacy zipcode field
+	if g.headers.Zipcode != "" && record.Postal.Code != "" {
+		rw.Header().Set(g.headers.Zipcode, record.Postal.Code)
+	}
+
+	// Location
+	if g.headers.Latitude != "" && record.Location.Latitude != 0 {
+		rw.Header().Set(g.headers.Latitude, strconv.FormatFloat(record.Location.Latitude, 'f', 6, 64))
+	}
+	if g.headers.Longitude != "" && record.Location.Longitude != 0 {
+		rw.Header().Set(g.headers.Longitude, strconv.FormatFloat(record.Location.Longitude, 'f', 6, 64))
+	}
+	if g.headers.Timezone != "" && record.Location.TimeZone != "" {
+		rw.Header().Set(g.headers.Timezone, record.Location.TimeZone)
+	}
+	if g.headers.AccuracyRadius != "" && record.Location.AccuracyRadius != 0 {
+		rw.Header().Set(g.headers.AccuracyRadius, strconv.Itoa(int(record.Location.AccuracyRadius)))
+	}
+
+	// Traits (ISP, ASN, etc.)
+	if g.headers.Isp != "" && record.Traits.ISP != "" {
+		rw.Header().Set(g.headers.Isp, record.Traits.ISP)
+	}
+	if g.headers.Asn != "" && record.Traits.AutonomousSystemNumber != 0 {
+		rw.Header().Set(g.headers.Asn, strconv.Itoa(int(record.Traits.AutonomousSystemNumber)))
+	}
+	if g.headers.AsnOrganization != "" && record.Traits.AutonomousSystemOrganization != "" {
+		rw.Header().Set(g.headers.AsnOrganization, record.Traits.AutonomousSystemOrganization)
+	}
+	if g.headers.Domain != "" && record.Traits.Domain != "" {
+		rw.Header().Set(g.headers.Domain, record.Traits.Domain)
+	}
+	if g.headers.ConnectionType != "" && record.Traits.ConnectionType != "" {
+		rw.Header().Set(g.headers.ConnectionType, record.Traits.ConnectionType)
+	}
+	if g.headers.UserType != "" && record.Traits.UserType != "" {
+		rw.Header().Set(g.headers.UserType, record.Traits.UserType)
 	}
 }
