@@ -6,6 +6,7 @@ package traefik_plugin_ip2location
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 	"net"
@@ -247,8 +248,24 @@ func (r *MMDBReader) readData(offset uint32) (map[string]interface{}, error) {
 	return r.decodeData()
 }
 
-// decodeData decodes MMDB data structure
+// decodeData decodes MMDB data structure (must return a map)
 func (r *MMDBReader) decodeData() (map[string]interface{}, error) {
+	value, err := r.decodeValue()
+	if err != nil {
+		return nil, err
+	}
+	
+	// Ensure we return a map
+	if result, ok := value.(map[string]interface{}); ok {
+		return result, nil
+	}
+	
+	// If not a map, return empty map
+	return make(map[string]interface{}), nil
+}
+
+// decodeValue decodes a value from MMDB
+func (r *MMDBReader) decodeValue() (interface{}, error) {
 	ctrlByte := make([]byte, 1)
 	if _, err := r.file.Read(ctrlByte); err != nil {
 		return nil, err
@@ -266,17 +283,17 @@ func (r *MMDBReader) decodeData() (map[string]interface{}, error) {
 		typeNum = typeByte[0] + 7
 	}
 
-	dataSize := ctrl & 0x1F
+	dataSize := int(ctrl & 0x1F)
 	if dataSize >= 29 {
-		bytesToRead := int(dataSize - 28)
+		bytesToRead := dataSize - 28
 		sizeBytes := make([]byte, bytesToRead)
 		if _, err := r.file.Read(sizeBytes); err != nil {
 			return nil, err
 		}
-		dataSize = uint8(sizeBytes[0])
+		dataSize = int(sizeBytes[0])
 		if bytesToRead > 1 {
 			for i := 1; i < bytesToRead; i++ {
-				dataSize = dataSize<<8 | uint8(sizeBytes[i])
+				dataSize = dataSize<<8 | int(sizeBytes[i])
 			}
 		}
 		dataSize += 28
@@ -288,7 +305,7 @@ func (r *MMDBReader) decodeData() (map[string]interface{}, error) {
 		if _, err := r.file.Read(str); err != nil {
 			return nil, err
 		}
-		return nil, nil // Return string separately
+		return string(str), nil
 	case 3: // Double
 		if dataSize != 8 {
 			return nil, fmt.Errorf("invalid double size: %d", dataSize)
@@ -298,14 +315,13 @@ func (r *MMDBReader) decodeData() (map[string]interface{}, error) {
 			return nil, err
 		}
 		bits := binary.BigEndian.Uint64(buf)
-		_ = bits // Will be used for float64
-		return nil, nil
+		return float64FromBits(bits), nil
 	case 4: // Bytes
 		bytes := make([]byte, dataSize)
 		if _, err := r.file.Read(bytes); err != nil {
 			return nil, err
 		}
-		return nil, nil
+		return bytes, nil
 	case 5: // Unsigned 16-bit integer
 		if dataSize != 2 {
 			return nil, fmt.Errorf("invalid uint16 size: %d", dataSize)
@@ -314,8 +330,7 @@ func (r *MMDBReader) decodeData() (map[string]interface{}, error) {
 		if _, err := r.file.Read(buf); err != nil {
 			return nil, err
 		}
-		_ = binary.BigEndian.Uint16(buf)
-		return nil, nil
+		return binary.BigEndian.Uint16(buf), nil
 	case 6: // Unsigned 32-bit integer
 		if dataSize != 4 {
 			return nil, fmt.Errorf("invalid uint32 size: %d", dataSize)
@@ -324,12 +339,13 @@ func (r *MMDBReader) decodeData() (map[string]interface{}, error) {
 		if _, err := r.file.Read(buf); err != nil {
 			return nil, err
 		}
-		_ = binary.BigEndian.Uint32(buf)
-		return nil, nil
+		return binary.BigEndian.Uint32(buf), nil
 	case 7: // Map
-		return r.decodeMap(int(dataSize))
+		return r.decodeMap(dataSize)
+	case 8: // Array
+		return r.decodeArray(dataSize)
 	case 14: // Boolean
-		return nil, nil
+		return dataSize != 0, nil
 	default:
 		// Skip unknown types
 		skip := make([]byte, dataSize)
@@ -403,95 +419,6 @@ func (r *MMDBReader) decodeString() (string, error) {
 	}
 	
 	return string(str), nil
-}
-
-// decodeValue decodes a value from MMDB
-func (r *MMDBReader) decodeValue() (interface{}, error) {
-	ctrlByte := make([]byte, 1)
-	if _, err := r.file.Read(ctrlByte); err != nil {
-		return nil, err
-	}
-	
-	ctrl := ctrlByte[0]
-	typeNum := ctrl >> 5
-	dataSize := int(ctrl & 0x1F)
-	
-	if typeNum == 0 {
-		typeByte := make([]byte, 1)
-		if _, err := r.file.Read(typeByte); err != nil {
-			return nil, err
-		}
-		typeNum = typeByte[0] + 7
-	}
-	
-	if dataSize >= 29 {
-		bytesToRead := dataSize - 28
-		sizeBytes := make([]byte, bytesToRead)
-		if _, err := r.file.Read(sizeBytes); err != nil {
-			return nil, err
-		}
-		dataSize = int(sizeBytes[0])
-		if bytesToRead > 1 {
-			for i := 1; i < bytesToRead; i++ {
-				dataSize = dataSize<<8 | int(sizeBytes[i])
-			}
-		}
-		dataSize += 28
-	}
-	
-	switch typeNum {
-	case 2: // UTF-8 string
-		str := make([]byte, dataSize)
-		if _, err := r.file.Read(str); err != nil {
-			return nil, err
-		}
-		return string(str), nil
-	case 3: // Double
-		if dataSize != 8 {
-			return nil, fmt.Errorf("invalid double size: %d", dataSize)
-		}
-		buf := make([]byte, 8)
-		if _, err := r.file.Read(buf); err != nil {
-			return nil, err
-		}
-		bits := binary.BigEndian.Uint64(buf)
-		return float64FromBits(bits), nil
-	case 4: // Bytes
-		bytes := make([]byte, dataSize)
-		if _, err := r.file.Read(bytes); err != nil {
-			return nil, err
-		}
-		return bytes, nil
-	case 5: // Unsigned 16-bit integer
-		if dataSize != 2 {
-			return nil, fmt.Errorf("invalid uint16 size: %d", dataSize)
-		}
-		buf := make([]byte, 2)
-		if _, err := r.file.Read(buf); err != nil {
-			return nil, err
-		}
-		return binary.BigEndian.Uint16(buf), nil
-	case 6: // Unsigned 32-bit integer
-		if dataSize != 4 {
-			return nil, fmt.Errorf("invalid uint32 size: %d", dataSize)
-		}
-		buf := make([]byte, 4)
-		if _, err := r.file.Read(buf); err != nil {
-			return nil, err
-		}
-		return binary.BigEndian.Uint32(buf), nil
-	case 7: // Map
-		return r.decodeMap(dataSize)
-	case 8: // Array
-		return r.decodeArray(dataSize)
-	case 14: // Boolean
-		return dataSize != 0, nil
-	default:
-		// Skip unknown types
-		skip := make([]byte, dataSize)
-		r.file.Read(skip)
-		return nil, nil
-	}
 }
 
 // decodeArray decodes an MMDB array
