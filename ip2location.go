@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -45,6 +46,7 @@ type Config struct {
 	UseXForwardedFor   bool     `json:"use_x_forwarded_for,omitempty" yaml:"use_x_forwarded_for,omitempty"`
 	UseXRealIP         bool     `json:"use_x_real_ip,omitempty" yaml:"use_x_real_ip,omitempty"`
 	TrustedProxies     []string `json:"trusted_proxies,omitempty" yaml:"trusted_proxies,omitempty"`
+	Debug              bool     `json:"debug,omitempty" yaml:"debug,omitempty"`
 }
 
 // CreateConfig creates the default plugin configuration.
@@ -66,6 +68,7 @@ type GeoIP struct {
 	useXForwardedFor   bool
 	useXRealIP         bool
 	trustedProxies     []*net.IPNet
+	debug              bool
 }
 
 // New creates a new GeoIP plugin.
@@ -88,6 +91,14 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		disableErrorHeader: config.DisableErrorHeader,
 		useXForwardedFor:   config.UseXForwardedFor,
 		useXRealIP:         config.UseXRealIP,
+		debug:              config.Debug,
+	}
+
+	// Validate database file exists and is readable
+	if config.Debug {
+		if fileInfo, err := os.Stat(config.Filename); err == nil {
+			log.Printf("[geoip] Database file: %s, Size: %d bytes", config.Filename, fileInfo.Size())
+		}
 	}
 
 	// Parse trusted proxy CIDR ranges
@@ -119,6 +130,9 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	ip, err := g.getIP(req)
 	if err != nil {
+		if g.debug {
+			log.Printf("[geoip] Error getting IP: %v, RemoteAddr: %s", err, req.RemoteAddr)
+		}
 		if !g.disableErrorHeader {
 			req.Header.Set("X-GEOIP-ERROR", err.Error())
 			rw.Header().Set("X-GEOIP-ERROR", err.Error())
@@ -128,6 +142,9 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	if ip == nil {
+		if g.debug {
+			log.Printf("[geoip] Could not determine IP, RemoteAddr: %s", req.RemoteAddr)
+		}
 		if !g.disableErrorHeader {
 			req.Header.Set("X-GEOIP-ERROR", "could not determine client IP")
 			rw.Header().Set("X-GEOIP-ERROR", "could not determine client IP")
@@ -136,8 +153,15 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if g.debug {
+		log.Printf("[geoip] Looking up IP: %s (from RemoteAddr: %s)", ip.String(), req.RemoteAddr)
+	}
+
 	record, err := g.db.LookupIP(ip)
 	if err != nil {
+		if g.debug {
+			log.Printf("[geoip] Lookup failed for IP %s: %v", ip.String(), err)
+		}
 		if !g.disableErrorHeader {
 			errorMsg := fmt.Sprintf("database lookup failed: %v", err)
 			req.Header.Set("X-GEOIP-ERROR", errorMsg)
@@ -145,6 +169,11 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		}
 		g.next.ServeHTTP(rw, req)
 		return
+	}
+
+	if g.debug {
+		log.Printf("[geoip] Lookup successful for IP %s: Country=%s, City=%s", 
+			ip.String(), record.Country.IsoCode, record.City.Names["en"])
 	}
 
 	// Add headers to request (for backend services)
