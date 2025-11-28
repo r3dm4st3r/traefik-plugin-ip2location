@@ -26,7 +26,7 @@ experimental:
   plugins:
     ip2location:
       moduleName: github.com/r3dm4st3r/traefik-plugin-ip2location
-      version: v0.2.0
+      version: v1.0.1
 ```
 
 ### Dynamic Configuration
