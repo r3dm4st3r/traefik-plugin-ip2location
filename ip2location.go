@@ -370,6 +370,8 @@ func (g *GeoIP) addHeaders(req *http.Request, record *GeoIP2Record) {
 func (g *GeoIP) addResponseHeaders(rw http.ResponseWriter, record *GeoIP2Record) {
 	// Test header - always set to verify plugin is working
 	rw.Header().Set("X-GeoIP-Test", "plugin-loaded")
+	// Debug: show what config was loaded
+	rw.Header().Set("X-GeoIP-Config-Country", g.headers.CountryCode)
 
 	// Country
 	if g.headers.CountryCode != "" && record.Country.IsoCode != "" {
