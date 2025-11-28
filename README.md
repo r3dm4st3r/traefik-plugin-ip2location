@@ -1,36 +1,53 @@
 # ip2location
 
-Plugin for getting information from ip2location database and pass it to request headers
+Traefik middleware plugin for enriching requests with geolocation information from IP2Location database.
+
+**Compatible with Traefik v3.6+**
+
+## Features
+
+- ✅ **Traefik v3.6 Compatible** - Fully updated for the latest Traefik version
+- ✅ **Enhanced IP Detection** - Supports X-Forwarded-For, X-Real-IP, and custom headers
+- ✅ **Trusted Proxy Support** - Configure trusted proxy IP ranges for security
+- ✅ **Comprehensive Geo Data** - 20+ geolocation fields available
+- ✅ **IPv4 and IPv6 Support** - Works with both IP address versions
+- ✅ **Error Handling** - Configurable error reporting
+- ✅ **High Performance** - Efficient binary database lookups
 
 ## Configuration
 
-To configure this plugin you should add its configuration to the Traefik dynamic configuration as explained [here](https://docs.traefik.io/getting-started/configuration-overview/#the-dynamic-configuration).
-The following snippet shows how to configure this plugin with the File provider in TOML and YAML: 
+### Static Configuration (Traefik v3)
 
-Static:
+For Traefik v3, plugins are configured using the static configuration. Here's an example:
 
 ```yaml
+# Static configuration
 experimental:
-  pilot:
-    token: xxx
-
   plugins:
     ip2location:
-      modulename: github.com/negasus/traefik-plugin-ip2location
-      version: v0.1.0
+      moduleName: github.com/negasus/traefik-plugin-ip2location
+      version: v0.2.0
 ```
 
-Dynamic:
+### Dynamic Configuration
+
+Add the middleware configuration to your Traefik dynamic configuration:
 
 ```yaml
 http:
   middlewares:
-   my-plugin:
+    ip2location-geo:
       plugin:
         ip2location:
-          filename: /path/to/database.bin
-          fromHeader: X-User-IP # optional
-          disableErrorHeader: false
+          filename: /path/to/IP2LOCATION-LITE-DB1.IPV6.BIN
+          fromHeader: "" # Optional: custom header to read IP from
+          useXForwardedFor: true # Use X-Forwarded-For header (default: true)
+          useXRealIP: true # Use X-Real-IP header (default: true)
+          trustedProxies: # Optional: list of trusted proxy CIDR ranges
+            - "10.0.0.0/8"
+            - "172.16.0.0/12"
+            - "192.168.0.0/16"
+          disableErrorHeader: false # Set to true to disable error headers
           headers:
             CountryShort: X-GEO-CountryShort
             CountryLong: X-GEO-CountryLong
@@ -54,32 +71,141 @@ http:
             Usagetype: X-GEO-Usagetype
 ```
 
-### Options
+### Minimal Configuration Example
 
-#### Filename (`filename`)
+```yaml
+http:
+  middlewares:
+    geo-headers:
+      plugin:
+        ip2location:
+          filename: /data/IP2LOCATION-LITE-DB1.IPV6.BIN
+          headers:
+            CountryShort: X-Country-Code
+            City: X-City
+```
 
-*Required*
+## Configuration Options
 
-The path to ip2location database file (in binary format)
+### Filename (`filename`)
 
-#### FromHeader (`fromHeader`)
+**Required**
 
-*Default: empty*
+The absolute path to the IP2Location database file (BIN format).
 
-If defined, IP address will be obtained from this HTTP header
+Example: `/data/IP2LOCATION-LITE-DB1.IPV6.BIN`
 
-#### DisableErrorHeader (`disableErrorHeader`)
+### FromHeader (`fromHeader`)
 
-*Default: false*
+**Default: empty**
 
-If `false`, any errors will be placed to the `X-IP2LOCATION-ERROR` http header. Set to `true` for disable. 
+If specified, the IP address will be read from this HTTP header instead of using the default detection logic. This takes the highest priority.
 
-#### Headers (`headers`)
+Example: `X-User-IP`
 
-*Default: empty*
+### UseXForwardedFor (`useXForwardedFor`)
 
-Define the HTTP Header name if you want to pass any of the parameters
+**Default: `true`**
 
-### Errors
+Enable reading the client IP from the `X-Forwarded-For` header. Only used if the request comes from a trusted proxy (see `trustedProxies`).
 
-If any error occurred, this error will be placed to X-IP2LOCATION-ERROR header
+### UseXRealIP (`useXRealIP`)
+
+**Default: `true`**
+
+Enable reading the client IP from the `X-Real-IP` header. Only used if the request comes from a trusted proxy (see `trustedProxies`).
+
+### TrustedProxies (`trustedProxies`)
+
+**Default: empty (all proxies trusted)**
+
+List of CIDR ranges for trusted proxies. If empty, all proxies are trusted (backward compatible behavior).
+
+**Security Note**: In production, it's recommended to configure this to only trust your load balancer/proxy IPs.
+
+Examples:
+```yaml
+trustedProxies:
+  - "10.0.0.0/8"        # Private network
+  - "172.16.0.0/12"     # Private network
+  - "192.168.0.0/16"    # Private network
+  - "203.0.113.0/24"    # Specific proxy range
+```
+
+### DisableErrorHeader (`disableErrorHeader`)
+
+**Default: `false`**
+
+If `false`, errors will be added to the `X-IP2LOCATION-ERROR` HTTP header. Set to `true` to disable error headers.
+
+### Headers (`headers`)
+
+**Default: empty**
+
+Map of IP2Location fields to HTTP header names. Only configured headers will be added to requests.
+
+Available fields:
+- `CountryShort` - ISO-3166 country code (e.g., "US")
+- `CountryLong` - Country name (e.g., "United States")
+- `Region` - Region/State name
+- `City` - City name
+- `Isp` - Internet Service Provider
+- `Latitude` - Latitude coordinate (6 decimal precision)
+- `Longitude` - Longitude coordinate (6 decimal precision)
+- `Domain` - Domain name
+- `Zipcode` - Postal/ZIP code
+- `Timezone` - Time zone (e.g., "America/New_York")
+- `Netspeed` - Connection speed category
+- `Iddcode` - International Direct Dialing code
+- `Areacode` - Area code
+- `Weatherstationcode` - Weather station code
+- `Weatherstationname` - Weather station name
+- `Mcc` - Mobile Country Code
+- `Mnc` - Mobile Network Code
+- `Mobilebrand` - Mobile carrier brand
+- `Elevation` - Elevation in meters (2 decimal precision)
+- `Usagetype` - Usage type (e.g., "ISP", "DCH", "CDN")
+
+## IP Detection Priority
+
+The plugin detects the client IP address in the following order:
+
+1. **Custom Header** (if `fromHeader` is configured)
+2. **X-Real-IP** (if `useXRealIP` is `true` and proxy is trusted)
+3. **X-Forwarded-For** (if `useXForwardedFor` is `true` and proxy is trusted) - takes first IP from comma-separated list
+4. **RemoteAddr** - Direct connection IP
+
+## Error Handling
+
+If any error occurs during IP detection or database lookup, the error message will be added to the `X-IP2LOCATION-ERROR` header (unless `disableErrorHeader` is `true`). The request will continue to be processed normally.
+
+## Database Files
+
+Download IP2Location database files from:
+- [IP2Location LITE (Free)](https://lite.ip2location.com/)
+- [IP2Location Commercial](https://www.ip2location.com/)
+
+Supported database types:
+- DB1 through DB25 (all fields)
+- IPv4 and IPv6 databases
+
+## Requirements
+
+- Traefik v3.0 or higher
+- Go 1.21 or higher (for building from source)
+- IP2Location BIN database file
+
+## Building from Source
+
+```bash
+go mod download
+go build -o ip2location.so -buildmode=plugin .
+```
+
+## License
+
+See LICENSE file for details.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
