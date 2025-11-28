@@ -50,25 +50,25 @@ http:
             - "172.16.0.0/12"
             - "192.168.0.0/16"
           disableErrorHeader: false # Set to true to disable error headers
-          headers:
-            CountryCode: X-GEO-Country-Code
-            CountryName: X-GEO-Country-Name
-            Region: X-GEO-Region
-            RegionCode: X-GEO-Region-Code
-            City: X-GEO-City
-            PostalCode: X-GEO-Postal-Code
-            Latitude: X-GEO-Latitude
-            Longitude: X-GEO-Longitude
-            Timezone: X-GEO-TimeZone
-            ContinentCode: X-GEO-Continent-Code
-            ContinentName: X-GEO-Continent-Name
-            Isp: X-GEO-ISP
-            Asn: X-GEO-ASN
-            AsnOrganization: X-GEO-ASN-Org
-            Domain: X-GEO-Domain
-            ConnectionType: X-GEO-Connection-Type
-            UserType: X-GEO-User-Type
-            AccuracyRadius: X-GEO-Accuracy-Radius
+          # Header mappings - flattened (no nested "headers:" for Yaegi compatibility)
+          country_code: X-GEO-Country-Code
+          country_name: X-GEO-Country-Name
+          region: X-GEO-Region
+          region_code: X-GEO-Region-Code
+          city: X-GEO-City
+          postal_code: X-GEO-Postal-Code
+          latitude: X-GEO-Latitude
+          longitude: X-GEO-Longitude
+          timezone: X-GEO-TimeZone
+          continent_code: X-GEO-Continent-Code
+          continent_name: X-GEO-Continent-Name
+          isp: X-GEO-ISP
+          asn: X-GEO-ASN
+          asn_organization: X-GEO-ASN-Org
+          domain: X-GEO-Domain
+          connection_type: X-GEO-Connection-Type
+          user_type: X-GEO-User-Type
+          accuracy_radius: X-GEO-Accuracy-Radius
 ```
 
 ### Minimal Configuration Example
@@ -80,9 +80,8 @@ http:
       plugin:
         ip2location:
           filename: /data/GeoLite2-City.mmdb
-          headers:
-            CountryCode: X-Country-Code
-            City: X-City
+          country_code: X-Country-Code
+          city: X-City
 ```
 
 ### Legacy Field Names (Backward Compatibility)
@@ -90,10 +89,9 @@ http:
 For backward compatibility, the following legacy field names are supported:
 
 ```yaml
-headers:
-  CountryShort: X-GEO-Country  # Maps to CountryCode
-  CountryLong: X-GEO-Country-Name  # Maps to CountryName
-  Zipcode: X-GEO-Zipcode  # Maps to PostalCode
+country_short: X-GEO-Country  # Maps to country_code
+country_long: X-GEO-Country-Name  # Maps to country_name
+zipcode: X-GEO-Zipcode  # Maps to postal_code
 ```
 
 ## Configuration Options
@@ -155,11 +153,13 @@ trustedProxies:
 
 If `false`, errors will be added to the `X-GEOIP-ERROR` HTTP header. Set to `true` to disable error headers.
 
-### Headers (`headers`)
+### Header Mappings (Flattened Configuration)
 
 **Default: empty**
 
-Map of MaxMind GeoIP2 fields to HTTP header names. Only configured headers will be added to requests.
+Header mappings are configured directly at the root level (flattened) for Traefik Yaegi compatibility. Only configured headers will be added to requests and responses.
+
+**Note:** The configuration is flattened (no nested `headers:` section) because Traefik's Yaegi interpreter has limitations with nested struct parsing.
 
 ## Available Fields
 
