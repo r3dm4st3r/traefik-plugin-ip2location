@@ -8,40 +8,44 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/oschwald/geoip2-golang"
 )
 
 // Headers part of the configuration
 type Headers struct {
-	CountryShort       string `json:"country_short,omitempty" yaml:"country_short,omitempty"`
-	CountryLong        string `json:"country_long,omitempty" yaml:"country_long,omitempty"`
-	Region             string `json:"region,omitempty" yaml:"region,omitempty"`
-	City               string `json:"city,omitempty" yaml:"city,omitempty"`
-	Isp                string `json:"isp,omitempty" yaml:"isp,omitempty"`
-	Latitude           string `json:"latitude,omitempty" yaml:"latitude,omitempty"`
-	Longitude          string `json:"longitude,omitempty" yaml:"longitude,omitempty"`
-	Domain             string `json:"domain,omitempty" yaml:"domain,omitempty"`
-	Zipcode            string `json:"zipcode,omitempty" yaml:"zipcode,omitempty"`
-	Timezone           string `json:"timezone,omitempty" yaml:"timezone,omitempty"`
-	Netspeed           string `json:"netspeed,omitempty" yaml:"netspeed,omitempty"`
-	Iddcode            string `json:"iddcode,omitempty" yaml:"iddcode,omitempty"`
-	Areacode           string `json:"areacode,omitempty" yaml:"areacode,omitempty"`
-	Weatherstationcode string `json:"weatherstationcode,omitempty" yaml:"weatherstationcode,omitempty"`
-	Weatherstationname string `json:"weatherstationname,omitempty" yaml:"weatherstationname,omitempty"`
-	Mcc                string `json:"mcc,omitempty" yaml:"mcc,omitempty"`
-	Mnc                string `json:"mnc,omitempty" yaml:"mnc,omitempty"`
-	Mobilebrand        string `json:"mobilebrand,omitempty" yaml:"mobilebrand,omitempty"`
-	Elevation          string `json:"elevation,omitempty" yaml:"elevation,omitempty"`
-	Usagetype          string `json:"usagetype,omitempty" yaml:"usagetype,omitempty"`
+	CountryCode     string `json:"country_code,omitempty" yaml:"country_code,omitempty"`
+	CountryName     string `json:"country_name,omitempty" yaml:"country_name,omitempty"`
+	Region          string `json:"region,omitempty" yaml:"region,omitempty"`
+	RegionCode      string `json:"region_code,omitempty" yaml:"region_code,omitempty"`
+	City            string `json:"city,omitempty" yaml:"city,omitempty"`
+	PostalCode      string `json:"postal_code,omitempty" yaml:"postal_code,omitempty"`
+	Latitude        string `json:"latitude,omitempty" yaml:"latitude,omitempty"`
+	Longitude       string `json:"longitude,omitempty" yaml:"longitude,omitempty"`
+	Timezone        string `json:"timezone,omitempty" yaml:"timezone,omitempty"`
+	ContinentCode   string `json:"continent_code,omitempty" yaml:"continent_code,omitempty"`
+	ContinentName   string `json:"continent_name,omitempty" yaml:"continent_name,omitempty"`
+	Isp             string `json:"isp,omitempty" yaml:"isp,omitempty"`
+	Asn             string `json:"asn,omitempty" yaml:"asn,omitempty"`
+	AsnOrganization string `json:"asn_organization,omitempty" yaml:"asn_organization,omitempty"`
+	Domain          string `json:"domain,omitempty" yaml:"domain,omitempty"`
+	ConnectionType  string `json:"connection_type,omitempty" yaml:"connection_type,omitempty"`
+	UserType        string `json:"user_type,omitempty" yaml:"user_type,omitempty"`
+	AccuracyRadius  string `json:"accuracy_radius,omitempty" yaml:"accuracy_radius,omitempty"`
+	// Legacy fields for backward compatibility
+	CountryShort string `json:"country_short,omitempty" yaml:"country_short,omitempty"`
+	CountryLong  string `json:"country_long,omitempty" yaml:"country_long,omitempty"`
+	Zipcode      string `json:"zipcode,omitempty" yaml:"zipcode,omitempty"`
 }
 
 // Config the plugin configuration.
 type Config struct {
-	Filename           string  `json:"filename,omitempty" yaml:"filename,omitempty"`
-	FromHeader         string  `json:"from_header,omitempty" yaml:"from_header,omitempty"`
-	Headers            Headers `json:"headers,omitempty" yaml:"headers,omitempty"`
-	DisableErrorHeader bool    `json:"disable_error_header,omitempty" yaml:"disable_error_header,omitempty"`
-	UseXForwardedFor   bool    `json:"use_x_forwarded_for,omitempty" yaml:"use_x_forwarded_for,omitempty"`
-	UseXRealIP         bool    `json:"use_x_real_ip,omitempty" yaml:"use_x_real_ip,omitempty"`
+	Filename           string   `json:"filename,omitempty" yaml:"filename,omitempty"`
+	FromHeader         string   `json:"from_header,omitempty" yaml:"from_header,omitempty"`
+	Headers            Headers  `json:"headers,omitempty" yaml:"headers,omitempty"`
+	DisableErrorHeader bool     `json:"disable_error_header,omitempty" yaml:"disable_error_header,omitempty"`
+	UseXForwardedFor   bool     `json:"use_x_forwarded_for,omitempty" yaml:"use_x_forwarded_for,omitempty"`
+	UseXRealIP         bool     `json:"use_x_real_ip,omitempty" yaml:"use_x_real_ip,omitempty"`
 	TrustedProxies     []string `json:"trusted_proxies,omitempty" yaml:"trusted_proxies,omitempty"`
 }
 
@@ -53,12 +57,12 @@ func CreateConfig() *Config {
 	}
 }
 
-// IP2Location plugin.
-type IP2Location struct {
+// GeoIP plugin using MaxMind GeoIP2 database.
+type GeoIP struct {
 	next               http.Handler
 	name               string
 	fromHeader         string
-	db                 *DB
+	db                 *geoip2.Reader
 	headers            Headers
 	disableErrorHeader bool
 	useXForwardedFor   bool
@@ -66,18 +70,18 @@ type IP2Location struct {
 	trustedProxies     []*net.IPNet
 }
 
-// New created a new IP2Location plugin.
+// New creates a new GeoIP plugin.
 func New(_ context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 	if config.Filename == "" {
 		return nil, fmt.Errorf("filename is required")
 	}
 
-	db, err := OpenDB(config.Filename)
+	db, err := geoip2.Open(config.Filename)
 	if err != nil {
-		return nil, fmt.Errorf("error opening database file: %w", err)
+		return nil, fmt.Errorf("error opening MaxMind database file: %w", err)
 	}
 
-	plugin := &IP2Location{
+	plugin := &GeoIP{
 		next:               next,
 		name:               name,
 		fromHeader:         config.FromHeader,
@@ -97,7 +101,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 				// Try parsing as single IP
 				ip := net.ParseIP(proxy)
 				if ip == nil {
-					log.Printf("[ip2location] Warning: invalid trusted proxy '%s', ignoring", proxy)
+					log.Printf("[geoip] Warning: invalid trusted proxy '%s', ignoring", proxy)
 					continue
 				}
 				// Create a /32 or /128 CIDR for single IP
@@ -114,36 +118,36 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 	return plugin, nil
 }
 
-func (a *IP2Location) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	ip, err := a.getIP(req)
+func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	ip, err := g.getIP(req)
 	if err != nil {
-		if !a.disableErrorHeader {
-			req.Header.Set("X-IP2LOCATION-ERROR", err.Error())
+		if !g.disableErrorHeader {
+			req.Header.Set("X-GEOIP-ERROR", err.Error())
 		}
-		a.next.ServeHTTP(rw, req)
+		g.next.ServeHTTP(rw, req)
 		return
 	}
 
 	if ip == nil {
-		if !a.disableErrorHeader {
-			req.Header.Set("X-IP2LOCATION-ERROR", "could not determine client IP")
+		if !g.disableErrorHeader {
+			req.Header.Set("X-GEOIP-ERROR", "could not determine client IP")
 		}
-		a.next.ServeHTTP(rw, req)
+		g.next.ServeHTTP(rw, req)
 		return
 	}
 
-	record, err := a.db.Get_all(ip.String())
+	record, err := g.db.City(ip)
 	if err != nil {
-		if !a.disableErrorHeader {
-			req.Header.Set("X-IP2LOCATION-ERROR", err.Error())
+		if !g.disableErrorHeader {
+			req.Header.Set("X-GEOIP-ERROR", fmt.Sprintf("database lookup failed: %v", err))
 		}
-		a.next.ServeHTTP(rw, req)
+		g.next.ServeHTTP(rw, req)
 		return
 	}
 
-	a.addHeaders(req, &record)
+	g.addHeaders(req, record)
 
-	a.next.ServeHTTP(rw, req)
+	g.next.ServeHTTP(rw, req)
 }
 
 // getIP extracts the client IP address from the request.
@@ -152,12 +156,12 @@ func (a *IP2Location) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 // 2. X-Real-IP (if enabled and trusted)
 // 3. X-Forwarded-For (if enabled and trusted)
 // 4. RemoteAddr
-func (a *IP2Location) getIP(req *http.Request) (net.IP, error) {
+func (g *GeoIP) getIP(req *http.Request) (net.IP, error) {
 	// Priority 1: Custom header
-	if a.fromHeader != "" {
-		ipStr := req.Header.Get(a.fromHeader)
+	if g.fromHeader != "" {
+		ipStr := req.Header.Get(g.fromHeader)
 		if ipStr != "" {
-			ip := a.parseIP(ipStr)
+			ip := g.parseIP(ipStr)
 			if ip != nil {
 				return ip, nil
 			}
@@ -165,13 +169,13 @@ func (a *IP2Location) getIP(req *http.Request) (net.IP, error) {
 	}
 
 	// Check if we should trust proxy headers
-	trustProxy := a.isTrustedProxy(req.RemoteAddr)
+	trustProxy := g.isTrustedProxy(req.RemoteAddr)
 
 	// Priority 2: X-Real-IP
-	if a.useXRealIP && trustProxy {
+	if g.useXRealIP && trustProxy {
 		ipStr := req.Header.Get("X-Real-IP")
 		if ipStr != "" {
-			ip := a.parseIP(ipStr)
+			ip := g.parseIP(ipStr)
 			if ip != nil {
 				return ip, nil
 			}
@@ -179,14 +183,14 @@ func (a *IP2Location) getIP(req *http.Request) (net.IP, error) {
 	}
 
 	// Priority 3: X-Forwarded-For
-	if a.useXForwardedFor && trustProxy {
+	if g.useXForwardedFor && trustProxy {
 		xff := req.Header.Get("X-Forwarded-For")
 		if xff != "" {
 			// X-Forwarded-For can contain multiple IPs, take the first one
 			ips := strings.Split(xff, ",")
 			if len(ips) > 0 {
 				ipStr := strings.TrimSpace(ips[0])
-				ip := a.parseIP(ipStr)
+				ip := g.parseIP(ipStr)
 				if ip != nil {
 					return ip, nil
 				}
@@ -209,7 +213,7 @@ func (a *IP2Location) getIP(req *http.Request) (net.IP, error) {
 }
 
 // parseIP parses an IP address string, handling both IPv4 and IPv6
-func (a *IP2Location) parseIP(ipStr string) net.IP {
+func (g *GeoIP) parseIP(ipStr string) net.IP {
 	ipStr = strings.TrimSpace(ipStr)
 	// Remove port if present
 	if host, _, err := net.SplitHostPort(ipStr); err == nil {
@@ -219,9 +223,9 @@ func (a *IP2Location) parseIP(ipStr string) net.IP {
 }
 
 // isTrustedProxy checks if the request comes from a trusted proxy
-func (a *IP2Location) isTrustedProxy(remoteAddr string) bool {
+func (g *GeoIP) isTrustedProxy(remoteAddr string) bool {
 	// If no trusted proxies configured, trust all (backward compatible)
-	if len(a.trustedProxies) == 0 {
+	if len(g.trustedProxies) == 0 {
 		return true
 	}
 
@@ -235,7 +239,7 @@ func (a *IP2Location) isTrustedProxy(remoteAddr string) bool {
 		return false
 	}
 
-	for _, trustedNet := range a.trustedProxies {
+	for _, trustedNet := range g.trustedProxies {
 		if trustedNet.Contains(ip) {
 			return true
 		}
@@ -244,65 +248,86 @@ func (a *IP2Location) isTrustedProxy(remoteAddr string) bool {
 	return false
 }
 
-func (a *IP2Location) addHeaders(req *http.Request, record *IP2Locationrecord) {
-	if a.headers.CountryShort != "" && record.Country_short != "" {
-		req.Header.Set(a.headers.CountryShort, record.Country_short)
+func (g *GeoIP) addHeaders(req *http.Request, record *geoip2.City) {
+	// Country
+	if g.headers.CountryCode != "" && record.Country.IsoCode != "" {
+		req.Header.Set(g.headers.CountryCode, record.Country.IsoCode)
 	}
-	if a.headers.CountryLong != "" && record.Country_long != "" {
-		req.Header.Set(a.headers.CountryLong, record.Country_long)
+	if g.headers.CountryName != "" && record.Country.Names["en"] != "" {
+		req.Header.Set(g.headers.CountryName, record.Country.Names["en"])
 	}
-	if a.headers.Region != "" && record.Region != "" {
-		req.Header.Set(a.headers.Region, record.Region)
+	// Legacy country fields
+	if g.headers.CountryShort != "" && record.Country.IsoCode != "" {
+		req.Header.Set(g.headers.CountryShort, record.Country.IsoCode)
 	}
-	if a.headers.City != "" && record.City != "" {
-		req.Header.Set(a.headers.City, record.City)
+	if g.headers.CountryLong != "" && record.Country.Names["en"] != "" {
+		req.Header.Set(g.headers.CountryLong, record.Country.Names["en"])
 	}
-	if a.headers.Isp != "" && record.Isp != "" {
-		req.Header.Set(a.headers.Isp, record.Isp)
+
+	// Continent
+	if g.headers.ContinentCode != "" && record.Continent.Code != "" {
+		req.Header.Set(g.headers.ContinentCode, record.Continent.Code)
 	}
-	if a.headers.Latitude != "" && record.Latitude != 0 {
-		req.Header.Set(a.headers.Latitude, strconv.FormatFloat(float64(record.Latitude), 'f', 6, 32))
+	if g.headers.ContinentName != "" && record.Continent.Names["en"] != "" {
+		req.Header.Set(g.headers.ContinentName, record.Continent.Names["en"])
 	}
-	if a.headers.Longitude != "" && record.Longitude != 0 {
-		req.Header.Set(a.headers.Longitude, strconv.FormatFloat(float64(record.Longitude), 'f', 6, 32))
+
+	// Subdivision (Region/State)
+	if len(record.Subdivisions) > 0 {
+		subdivision := record.Subdivisions[0]
+		if g.headers.Region != "" && subdivision.Names["en"] != "" {
+			req.Header.Set(g.headers.Region, subdivision.Names["en"])
+		}
+		if g.headers.RegionCode != "" && subdivision.IsoCode != "" {
+			req.Header.Set(g.headers.RegionCode, subdivision.IsoCode)
+		}
 	}
-	if a.headers.Domain != "" && record.Domain != "" {
-		req.Header.Set(a.headers.Domain, record.Domain)
+
+	// City
+	if g.headers.City != "" && record.City.Names["en"] != "" {
+		req.Header.Set(g.headers.City, record.City.Names["en"])
 	}
-	if a.headers.Zipcode != "" && record.Zipcode != "" {
-		req.Header.Set(a.headers.Zipcode, record.Zipcode)
+
+	// Postal Code
+	if g.headers.PostalCode != "" && record.Postal.Code != "" {
+		req.Header.Set(g.headers.PostalCode, record.Postal.Code)
 	}
-	if a.headers.Timezone != "" && record.Timezone != "" {
-		req.Header.Set(a.headers.Timezone, record.Timezone)
+	// Legacy zipcode field
+	if g.headers.Zipcode != "" && record.Postal.Code != "" {
+		req.Header.Set(g.headers.Zipcode, record.Postal.Code)
 	}
-	if a.headers.Netspeed != "" && record.Netspeed != "" {
-		req.Header.Set(a.headers.Netspeed, record.Netspeed)
+
+	// Location
+	if g.headers.Latitude != "" && record.Location.Latitude != 0 {
+		req.Header.Set(g.headers.Latitude, strconv.FormatFloat(record.Location.Latitude, 'f', 6, 64))
 	}
-	if a.headers.Iddcode != "" && record.Iddcode != "" {
-		req.Header.Set(a.headers.Iddcode, record.Iddcode)
+	if g.headers.Longitude != "" && record.Location.Longitude != 0 {
+		req.Header.Set(g.headers.Longitude, strconv.FormatFloat(record.Location.Longitude, 'f', 6, 64))
 	}
-	if a.headers.Areacode != "" && record.Areacode != "" {
-		req.Header.Set(a.headers.Areacode, record.Areacode)
+	if g.headers.Timezone != "" && record.Location.TimeZone != "" {
+		req.Header.Set(g.headers.Timezone, record.Location.TimeZone)
 	}
-	if a.headers.Weatherstationcode != "" && record.Weatherstationcode != "" {
-		req.Header.Set(a.headers.Weatherstationcode, record.Weatherstationcode)
+	if g.headers.AccuracyRadius != "" && record.Location.AccuracyRadius != 0 {
+		req.Header.Set(g.headers.AccuracyRadius, strconv.Itoa(int(record.Location.AccuracyRadius)))
 	}
-	if a.headers.Weatherstationname != "" && record.Weatherstationname != "" {
-		req.Header.Set(a.headers.Weatherstationname, record.Weatherstationname)
+
+	// Traits (ISP, ASN, etc.)
+	if g.headers.Isp != "" && record.Traits.ISP != "" {
+		req.Header.Set(g.headers.Isp, record.Traits.ISP)
 	}
-	if a.headers.Mcc != "" && record.Mcc != "" {
-		req.Header.Set(a.headers.Mcc, record.Mcc)
+	if g.headers.Asn != "" && record.Traits.AutonomousSystemNumber != 0 {
+		req.Header.Set(g.headers.Asn, strconv.Itoa(int(record.Traits.AutonomousSystemNumber)))
 	}
-	if a.headers.Mnc != "" && record.Mnc != "" {
-		req.Header.Set(a.headers.Mnc, record.Mnc)
+	if g.headers.AsnOrganization != "" && record.Traits.AutonomousSystemOrganization != "" {
+		req.Header.Set(g.headers.AsnOrganization, record.Traits.AutonomousSystemOrganization)
 	}
-	if a.headers.Mobilebrand != "" && record.Mobilebrand != "" {
-		req.Header.Set(a.headers.Mobilebrand, record.Mobilebrand)
+	if g.headers.Domain != "" && record.Traits.Domain != "" {
+		req.Header.Set(g.headers.Domain, record.Traits.Domain)
 	}
-	if a.headers.Elevation != "" && record.Elevation != 0 {
-		req.Header.Set(a.headers.Elevation, strconv.FormatFloat(float64(record.Elevation), 'f', 2, 32))
+	if g.headers.ConnectionType != "" && record.Traits.ConnectionType != "" {
+		req.Header.Set(g.headers.ConnectionType, record.Traits.ConnectionType)
 	}
-	if a.headers.Usagetype != "" && record.Usagetype != "" {
-		req.Header.Set(a.headers.Usagetype, record.Usagetype)
+	if g.headers.UserType != "" && record.Traits.UserType != "" {
+		req.Header.Set(g.headers.UserType, record.Traits.UserType)
 	}
 }

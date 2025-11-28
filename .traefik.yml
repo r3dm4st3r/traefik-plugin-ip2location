@@ -1,31 +1,29 @@
-displayName: ip2location plugin
+displayName: MaxMind GeoIP2 plugin
 type: middleware
 
 import: github.com/r3dm4st3r/traefik-plugin-ip2location
 
-summary: '[ip2location] Add Geo Headers'
+summary: '[geoip] Add Geo Headers from MaxMind'
 
 testData:
   fromHeader: 'X-Custom-IP'
-  filename: 'IP2LOCATION-LITE-DB1.IPV6.BIN'
+  filename: 'GeoLite2-City.mmdb'
   headers:
-    CountryShort: X-GEO-CountryShort
-    CountryLong: X-GEO-CountryLong
+    CountryCode: X-GEO-Country-Code
+    CountryName: X-GEO-Country-Name
     Region: X-GEO-Region
+    RegionCode: X-GEO-Region-Code
     City: X-GEO-City
-    Isp: X-GEO-Isp
+    PostalCode: X-GEO-Postal-Code
     Latitude: X-GEO-Latitude
     Longitude: X-GEO-Longitude
+    Timezone: X-GEO-TimeZone
+    ContinentCode: X-GEO-Continent-Code
+    ContinentName: X-GEO-Continent-Name
+    Isp: X-GEO-ISP
+    Asn: X-GEO-ASN
+    AsnOrganization: X-GEO-ASN-Org
     Domain: X-GEO-Domain
-    Zipcode: X-GEO-Zipcode
-    Timezone: X-GEO-Timezone
-    Netspeed: X-GEO-Netspeed
-    Iddcode: X-GEO-Iddcode
-    Areacode: X-GEO-Areacode
-    Weatherstationcode: X-GEO-Weatherstationcode
-    Weatherstationname: X-GEO-Weatherstationname
-    Mcc: X-GEO-Mcc
-    Mnc: X-GEO-Mnc
-    Mobilebrand: X-GEO-Mobilebrand
-    Elevation: X-GEO-Elevation
-    Usagetype: X-GEO-Usagetype
+    ConnectionType: X-GEO-Connection-Type
+    UserType: X-GEO-User-Type
+    AccuracyRadius: X-GEO-Accuracy-Radius
