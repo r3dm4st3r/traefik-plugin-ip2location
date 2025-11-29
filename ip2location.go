@@ -13,6 +13,7 @@ import (
 type Config struct {
 	Filename           string   `json:"filename,omitempty" yaml:"filename,omitempty"`
 	FromHeader         string   `json:"from_header,omitempty" yaml:"from_header,omitempty"`
+	ClientIp           string   `json:"client_ip,omitempty" yaml:"client_ip,omitempty"`
 	
 	// Header mappings - flattened (no nested struct for Yaegi compatibility)
 	CountryCode     string `json:"country_code,omitempty" yaml:"country_code,omitempty"`
@@ -59,6 +60,7 @@ type GeoIP struct {
 	next               http.Handler
 	name               string
 	fromHeader         string
+	clientIp           string
 	db                 *DB
 	// Header mappings - flattened
 	countryCode        string
@@ -105,6 +107,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		next:               next,
 		name:               name,
 		fromHeader:         config.FromHeader,
+		clientIp:           config.ClientIp,
 		db:                 db,
 		// Header mappings - flattened
 		countryCode:        config.CountryCode,
@@ -193,10 +196,10 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	// Add headers to request (for backend services)
-	g.addHeaders(req, record)
+	g.addHeaders(req, ip, record)
 
 	// Also add headers to response (for client)
-	g.addResponseHeaders(rw, record)
+	g.addResponseHeaders(rw, ip, record)
 
 	g.next.ServeHTTP(rw, req)
 }
@@ -311,7 +314,12 @@ func (g *GeoIP) isTrustedProxy(remoteAddr string) bool {
 	return false
 }
 
-func (g *GeoIP) addHeaders(req *http.Request, record IP2Locationrecord) {
+func (g *GeoIP) addHeaders(req *http.Request, ip net.IP, record IP2Locationrecord) {
+	// Add client IP header
+	if g.clientIp != "" && ip != nil {
+		req.Header.Set(g.clientIp, ip.String())
+	}
+
 	// Country
 	if g.countryCode != "" && record.Country_short != "" {
 		req.Header.Set(g.countryCode, record.Country_short)
@@ -369,7 +377,12 @@ func (g *GeoIP) addHeaders(req *http.Request, record IP2Locationrecord) {
 	// Note: IP2Location doesn't have ASN, ConnectionType, UserType
 }
 
-func (g *GeoIP) addResponseHeaders(rw http.ResponseWriter, record IP2Locationrecord) {
+func (g *GeoIP) addResponseHeaders(rw http.ResponseWriter, ip net.IP, record IP2Locationrecord) {
+	// Add client IP header
+	if g.clientIp != "" && ip != nil {
+		rw.Header().Set(g.clientIp, ip.String())
+	}
+
 	// Country
 	if g.countryCode != "" && record.Country_short != "" {
 		rw.Header().Set(g.countryCode, record.Country_short)
