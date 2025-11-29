@@ -8,7 +8,7 @@ Traefik middleware plugin for enriching requests with geolocation information fr
 
 - ✅ **Traefik v3.6 Compatible** - Fully updated for the latest Traefik version
 - ✅ **IP2Location BIN Support** - Uses IP2Location BIN database format (.bin)
-- ✅ **Enhanced IP Detection** - Supports X-Forwarded-For, X-Real-IP, and custom headers
+- ✅ **Enhanced IP Detection** - Supports X-Forwarded-For, X-Real-IP, X-Client-IP, and custom headers
 - ✅ **Trusted Proxy Support** - Configure trusted proxy IP ranges for security
 - ✅ **Comprehensive Geo Data** - Country, Region, City, Latitude, Longitude, ISP, Domain, and more
 - ✅ **IPv4 and IPv6 Support** - Works with both IP address versions
@@ -45,6 +45,7 @@ http:
           fromHeader: "" # Optional: custom header to read IP from
           useXForwardedFor: true # Use X-Forwarded-For header (default: true)
           useXRealIP: true # Use X-Real-IP header (default: true)
+          useXClientIP: true # Use X-Client-IP header (default: true)
           trustedProxies: # Optional: list of trusted proxy CIDR ranges
             - "10.0.0.0/8"
             - "172.16.0.0/12"
@@ -131,6 +132,12 @@ Enable reading the client IP from the `X-Forwarded-For` header. Only used if the
 
 Enable reading the client IP from the `X-Real-IP` header. Only used if the request comes from a trusted proxy (see `trustedProxies`).
 
+### UseXClientIP (`useXClientIP`)
+
+**Default: `true`**
+
+Enable reading the client IP from the `X-Client-IP` header. Only used if the request comes from a trusted proxy (see `trustedProxies`). This header is commonly used by CDNs and some proxy services.
+
 ### TrustedProxies (`trustedProxies`)
 
 **Default: empty (all proxies trusted)**
@@ -201,8 +208,9 @@ The plugin detects the client IP address in the following order:
 
 1. **Custom Header** (if `fromHeader` is configured)
 2. **X-Real-IP** (if `useXRealIP` is `true` and proxy is trusted)
-3. **X-Forwarded-For** (if `useXForwardedFor` is `true` and proxy is trusted) - takes first IP from comma-separated list
-4. **RemoteAddr** - Direct connection IP
+3. **X-Client-IP** (if `useXClientIP` is `true` and proxy is trusted)
+4. **X-Forwarded-For** (if `useXForwardedFor` is `true` and proxy is trusted) - takes first IP from comma-separated list
+5. **RemoteAddr** - Direct connection IP
 
 ## Error Handling
 

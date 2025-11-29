@@ -41,6 +41,7 @@ type Config struct {
 	DisableErrorHeader bool     `json:"disable_error_header,omitempty" yaml:"disable_error_header,omitempty"`
 	UseXForwardedFor   bool     `json:"use_x_forwarded_for,omitempty" yaml:"use_x_forwarded_for,omitempty"`
 	UseXRealIP         bool     `json:"use_x_real_ip,omitempty" yaml:"use_x_real_ip,omitempty"`
+	UseXClientIP       bool     `json:"use_x_client_ip,omitempty" yaml:"use_x_client_ip,omitempty"`
 	TrustedProxies     []string `json:"trusted_proxies,omitempty" yaml:"trusted_proxies,omitempty"`
 }
 
@@ -49,6 +50,7 @@ func CreateConfig() *Config {
 	return &Config{
 		UseXForwardedFor: true,
 		UseXRealIP:       true,
+		UseXClientIP:     true,
 	}
 }
 
@@ -84,6 +86,7 @@ type GeoIP struct {
 	disableErrorHeader  bool
 	useXForwardedFor    bool
 	useXRealIP          bool
+	useXClientIP        bool
 	trustedProxies      []*net.IPNet
 }
 
@@ -129,6 +132,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		disableErrorHeader: config.DisableErrorHeader,
 		useXForwardedFor:   config.UseXForwardedFor,
 		useXRealIP:         config.UseXRealIP,
+		useXClientIP:       config.UseXClientIP,
 	}
 
 
@@ -201,8 +205,9 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 // Priority order:
 // 1. Custom header (if configured)
 // 2. X-Real-IP (if enabled and trusted)
-// 3. X-Forwarded-For (if enabled and trusted)
-// 4. RemoteAddr
+// 3. X-Client-IP (if enabled and trusted)
+// 4. X-Forwarded-For (if enabled and trusted)
+// 5. RemoteAddr
 func (g *GeoIP) getIP(req *http.Request) (net.IP, error) {
 	// Priority 1: Custom header
 	if g.fromHeader != "" {
@@ -229,7 +234,18 @@ func (g *GeoIP) getIP(req *http.Request) (net.IP, error) {
 		}
 	}
 
-	// Priority 3: X-Forwarded-For
+	// Priority 3: X-Client-IP
+	if g.useXClientIP && trustProxy {
+		ipStr := req.Header.Get("X-Client-IP")
+		if ipStr != "" {
+			ip := g.parseIP(ipStr)
+			if ip != nil {
+				return ip, nil
+			}
+		}
+	}
+
+	// Priority 4: X-Forwarded-For
 	if g.useXForwardedFor && trustProxy {
 		xff := req.Header.Get("X-Forwarded-For")
 		if xff != "" {
