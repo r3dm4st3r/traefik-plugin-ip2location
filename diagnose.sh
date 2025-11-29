@@ -1,7 +1,7 @@
 #!/bin/bash
-# Diagnostic script for Traefik GeoIP Plugin
+# Diagnostic script for Traefik IP2Location Plugin
 
-echo "=== Traefik GeoIP Plugin Diagnostic Tool ==="
+echo "=== Traefik IP2Location Plugin Diagnostic Tool ==="
 echo ""
 
 # Colors
@@ -62,14 +62,18 @@ if [ -n "$1" ]; then
         FILE_SIZE=$(stat -f%z "$1" 2>/dev/null || stat -c%s "$1" 2>/dev/null)
         echo -e "${GREEN}✓${NC} File exists, size: $FILE_SIZE bytes"
         
-        # Check if it's a valid MMDB file
-        if file "$1" | grep -q "MMDB\|MaxMind"; then
-            echo -e "${GREEN}✓${NC} Valid MMDB file"
+        # Check if it's a BIN file
+        if [[ "$1" == *.bin ]] || [[ "$1" == *.BIN ]]; then
+            echo -e "${GREEN}✓${NC} File has .bin extension (IP2Location format)"
         else
-            echo -e "${YELLOW}⚠${NC} File type: $(file "$1")"
+            echo -e "${YELLOW}⚠${NC} File doesn't have .bin extension: $(file "$1")"
         fi
         
-        # Test lookup if test_mmdb exists
+        # Check file type
+        FILE_TYPE=$(file "$1" 2>/dev/null)
+        echo "   File type: $FILE_TYPE"
+        
+        # Test lookup if test script exists
         if [ -d "test_mmdb" ] && [ -f "test_mmdb/main.go" ]; then
             echo "   Testing lookup with 8.8.8.8..."
             cd test_mmdb
@@ -87,7 +91,7 @@ if [ -n "$1" ]; then
     fi
 else
     echo "5. Database file test (provide path as argument)"
-    echo "   Usage: ./diagnose.sh /path/to/GeoLite2-City.mmdb"
+    echo "   Usage: ./diagnose.sh /path/to/IP2LOCATION-LITE-DB11.BIN"
 fi
 echo ""
 
@@ -105,10 +109,15 @@ else
     echo -e "${RED}✗${NC} ip2location.go not found"
 fi
 
-if [ -f "mmdb.go" ]; then
-    echo -e "${GREEN}✓${NC} mmdb.go found"
+if [ -f "lib.go" ]; then
+    echo -e "${GREEN}✓${NC} lib.go found (IP2Location BIN reader)"
 else
-    echo -e "${RED}✗${NC} mmdb.go not found"
+    echo -e "${RED}✗${NC} lib.go not found (required for IP2Location BIN support)"
+fi
+
+# Check if old MMDB file still exists (should be removed)
+if [ -f "mmdb.go" ]; then
+    echo -e "${YELLOW}⚠${NC} mmdb.go still exists (should be removed - using IP2Location now)"
 fi
 echo ""
 
@@ -116,11 +125,19 @@ echo ""
 echo "7. Checking for common issues..."
 
 # Check for external imports
-if grep -r "github.com/oschwald\|github.com/ip2location" *.go 2>/dev/null | grep -v "^mmdb.go.*// Package"; then
+if grep -r "github.com/oschwald\|github.com/ip2location" *.go 2>/dev/null | grep -v "^lib.go.*// https://github.com/ip2location"; then
     echo -e "${RED}✗${NC} Found external dependency imports"
-    grep -r "github.com/oschwald\|github.com/ip2location" *.go 2>/dev/null | grep -v "^mmdb.go.*// Package"
+    grep -r "github.com/oschwald\|github.com/ip2location" *.go 2>/dev/null | grep -v "^lib.go.*// https://github.com/ip2location"
 else
     echo -e "${GREEN}✓${NC} No external dependency imports"
+fi
+
+# Check for MMDB references (should be removed)
+if grep -r "MMDB\|MaxMind\|\.mmdb" *.go 2>/dev/null | grep -v "^lib.go.*//"; then
+    echo -e "${YELLOW}⚠${NC} Found MMDB/MaxMind references (should be removed)"
+    grep -r "MMDB\|MaxMind\|\.mmdb" *.go 2>/dev/null | grep -v "^lib.go.*//"
+else
+    echo -e "${GREEN}✓${NC} No MMDB/MaxMind references found"
 fi
 
 # Check for undefined variables
@@ -137,6 +154,11 @@ echo ""
 echo "Next steps:"
 echo "1. Review any errors above"
 echo "2. Check TROUBLESHOOTING.md for solutions"
-echo "3. Enable debug mode in config: debug: true"
+echo "3. Ensure you have an IP2Location BIN database file (.bin)"
 echo "4. Check Traefik logs for plugin errors"
+echo ""
+echo "Database file requirements:"
+echo "  - Must be IP2Location BIN format (.bin extension)"
+echo "  - Recommended: IP2LOCATION-LITE-DB11.BIN (City + ISP)"
+echo "  - Download from: https://lite.ip2location.com/"
 

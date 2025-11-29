@@ -12,12 +12,12 @@ type httpHandlerMock struct{}
 
 func (h *httpHandlerMock) ServeHTTP(http.ResponseWriter, *http.Request) {}
 
-// TestGeoIP tests basic MaxMind GeoIP2 functionality
-// Note: Requires a MaxMind GeoLite2-City.mmdb file in the test directory
+// TestGeoIP tests basic IP2Location functionality
+// Note: Requires an IP2Location BIN file in the test directory
 func TestGeoIP(t *testing.T) {
-	dbPath := "GeoLite2-City.mmdb"
+	dbPath := "IP2LOCATION-LITE-DB11.BIN"
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		t.Skipf("Skipping test: MaxMind database file %s not found", dbPath)
+		t.Skipf("Skipping test: IP2Location database file %s not found", dbPath)
 	}
 
 	config := &Config{
@@ -44,21 +44,6 @@ func TestGeoIP(t *testing.T) {
 		t.Logf("Country code in request: %s", v)
 	}
 
-	// Check response headers - these should ALWAYS be set
-	testHeader := rw.Header().Get("X-GeoIP-Test")
-	if testHeader != "plugin-loaded" {
-		t.Errorf("Expected X-GeoIP-Test header to be 'plugin-loaded', got: '%s'", testHeader)
-	} else {
-		t.Logf("✓ Response header X-GeoIP-Test: %s", testHeader)
-	}
-
-	// Check debug config headers
-	debugCountry := rw.Header().Get("X-GeoIP-Debug-CountryCode-Config")
-	t.Logf("Debug CountryCode config: '%s'", debugCountry)
-	if debugCountry != "X-GEO-Country" {
-		t.Errorf("Expected X-GeoIP-Debug-CountryCode-Config to be 'X-GEO-Country', got: '%s'", debugCountry)
-	}
-
 	// Check if actual geo header was set in response
 	geoCountry := rw.Header().Get("X-GEO-Country")
 	if geoCountry != "" {
@@ -68,11 +53,11 @@ func TestGeoIP(t *testing.T) {
 	}
 }
 
-// TestGeoIP_ResponseHeaders tests that response headers are always set
+// TestGeoIP_ResponseHeaders tests that response headers are set correctly
 func TestGeoIP_ResponseHeaders(t *testing.T) {
-	dbPath := "GeoLite2-City.mmdb"
+	dbPath := "IP2LOCATION-LITE-DB11.BIN"
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		t.Skipf("Skipping test: MaxMind database file %s not found", dbPath)
+		t.Skipf("Skipping test: IP2Location database file %s not found", dbPath)
 	}
 
 	config := &Config{
@@ -93,41 +78,28 @@ func TestGeoIP_ResponseHeaders(t *testing.T) {
 
 	handler.ServeHTTP(rw, req)
 
-	// Test header should ALWAYS be present
-	testHeader := rw.Header().Get("X-GeoIP-Test")
-	if testHeader != "plugin-loaded" {
-		t.Fatalf("X-GeoIP-Test header missing or incorrect. Expected 'plugin-loaded', got: '%s'", testHeader)
-	}
-	t.Logf("✓ X-GeoIP-Test: %s", testHeader)
-
-	// Debug headers should show config values
-	debugCountry := rw.Header().Get("X-GeoIP-Debug-CountryCode-Config")
-	if debugCountry != "X-Test-Country" {
-		t.Errorf("X-GeoIP-Debug-CountryCode-Config incorrect. Expected 'X-Test-Country', got: '%s'", debugCountry)
-	} else {
-		t.Logf("✓ X-GeoIP-Debug-CountryCode-Config: %s", debugCountry)
+	// Check if geo headers were set in response
+	country := rw.Header().Get("X-Test-Country")
+	if country != "" {
+		t.Logf("✓ Response header X-Test-Country: %s", country)
 	}
 
-	debugCity := rw.Header().Get("X-GeoIP-Debug-City-Config")
-	if debugCity != "X-Test-City" {
-		t.Errorf("X-GeoIP-Debug-City-Config incorrect. Expected 'X-Test-City', got: '%s'", debugCity)
-	} else {
-		t.Logf("✓ X-GeoIP-Debug-City-Config: %s", debugCity)
+	city := rw.Header().Get("X-Test-City")
+	if city != "" {
+		t.Logf("✓ Response header X-Test-City: %s", city)
 	}
 
-	debugRegion := rw.Header().Get("X-GeoIP-Debug-Region-Config")
-	if debugRegion != "X-Test-Region" {
-		t.Errorf("X-GeoIP-Debug-Region-Config incorrect. Expected 'X-Test-Region', got: '%s'", debugRegion)
-	} else {
-		t.Logf("✓ X-GeoIP-Debug-Region-Config: %s", debugRegion)
+	region := rw.Header().Get("X-Test-Region")
+	if region != "" {
+		t.Logf("✓ Response header X-Test-Region: %s", region)
 	}
 }
 
 // TestGeoIP_XForwardedFor tests X-Forwarded-For header support
 func TestGeoIP_XForwardedFor(t *testing.T) {
-	dbPath := "GeoLite2-City.mmdb"
+	dbPath := "IP2LOCATION-LITE-DB11.BIN"
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		t.Skipf("Skipping test: MaxMind database file %s not found", dbPath)
+		t.Skipf("Skipping test: IP2Location database file %s not found", dbPath)
 	}
 
 	config := &Config{
@@ -156,17 +128,17 @@ func TestGeoIP_XForwardedFor(t *testing.T) {
 	}
 
 	// Check response headers
-	testHeader := rw.Header().Get("X-GeoIP-Test")
-	if testHeader != "plugin-loaded" {
-		t.Errorf("X-GeoIP-Test header missing. Expected 'plugin-loaded', got: '%s'", testHeader)
+	respCountry := rw.Header().Get("X-GEO-Country")
+	if respCountry != "" {
+		t.Logf("✓ Response header X-GEO-Country: %s", respCountry)
 	}
 }
 
 // TestGeoIP_CustomHeader tests custom header IP extraction
 func TestGeoIP_CustomHeader(t *testing.T) {
-	dbPath := "GeoLite2-City.mmdb"
+	dbPath := "IP2LOCATION-LITE-DB11.BIN"
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		t.Skipf("Skipping test: MaxMind database file %s not found", dbPath)
+		t.Skipf("Skipping test: IP2Location database file %s not found", dbPath)
 	}
 
 	config := &Config{
@@ -195,16 +167,16 @@ func TestGeoIP_CustomHeader(t *testing.T) {
 	}
 
 	// Check response headers
-	testHeader := rw.Header().Get("X-GeoIP-Test")
-	if testHeader != "plugin-loaded" {
-		t.Errorf("X-GeoIP-Test header missing. Expected 'plugin-loaded', got: '%s'", testHeader)
+	respCountry := rw.Header().Get("X-GEO-Country")
+	if respCountry != "" {
+		t.Logf("✓ Response header X-GEO-Country: %s", respCountry)
 	}
 }
 
 // TestGeoIP_ErrorHandling tests error handling for missing database
 func TestGeoIP_ErrorHandling(t *testing.T) {
 	config := &Config{
-		Filename:           "nonexistent.mmdb",
+		Filename:           "nonexistent.bin",
 		DisableErrorHeader: false,
 	}
 
@@ -215,11 +187,11 @@ func TestGeoIP_ErrorHandling(t *testing.T) {
 	t.Logf("Got expected error: %v", err)
 }
 
-// TestGeoIP_AllFields tests all available MaxMind fields
+// TestGeoIP_AllFields tests all available IP2Location fields
 func TestGeoIP_AllFields(t *testing.T) {
-	dbPath := "GeoLite2-City.mmdb"
+	dbPath := "IP2LOCATION-LITE-DB11.BIN"
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		t.Skipf("Skipping test: MaxMind database file %s not found", dbPath)
+		t.Skipf("Skipping test: IP2Location database file %s not found", dbPath)
 	}
 
 	config := &Config{
@@ -261,14 +233,6 @@ func TestGeoIP_AllFields(t *testing.T) {
 		t.Logf("Request header X-Country-Code: %s", countryCode)
 	}
 
-	// Check response headers - test header should always be present
-	testHeader := rw.Header().Get("X-GeoIP-Test")
-	if testHeader != "plugin-loaded" {
-		t.Errorf("Expected X-GeoIP-Test header, got: '%s'", testHeader)
-	} else {
-		t.Logf("✓ Response header X-GeoIP-Test: %s", testHeader)
-	}
-
 	// Check response geo headers
 	respCountryCode := rw.Header().Get("X-Country-Code")
 	if respCountryCode != "" {
@@ -278,9 +242,9 @@ func TestGeoIP_AllFields(t *testing.T) {
 
 // TestGeoIP_LegacyFields tests backward compatibility with legacy field names
 func TestGeoIP_LegacyFields(t *testing.T) {
-	dbPath := "GeoLite2-City.mmdb"
+	dbPath := "IP2LOCATION-LITE-DB11.BIN"
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		t.Skipf("Skipping test: MaxMind database file %s not found", dbPath)
+		t.Skipf("Skipping test: IP2Location database file %s not found", dbPath)
 	}
 
 	config := &Config{
@@ -307,8 +271,8 @@ func TestGeoIP_LegacyFields(t *testing.T) {
 	}
 
 	// Check response headers
-	testHeader := rw.Header().Get("X-GeoIP-Test")
-	if testHeader != "plugin-loaded" {
-		t.Errorf("X-GeoIP-Test header missing. Expected 'plugin-loaded', got: '%s'", testHeader)
+	respCountryShort := rw.Header().Get("X-GEO-Country")
+	if respCountryShort != "" {
+		t.Logf("✓ Response header X-GEO-Country: %s", respCountryShort)
 	}
 }

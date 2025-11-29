@@ -3,10 +3,8 @@ package traefik_plugin_ip2location
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 )
@@ -44,7 +42,6 @@ type Config struct {
 	UseXForwardedFor   bool     `json:"use_x_forwarded_for,omitempty" yaml:"use_x_forwarded_for,omitempty"`
 	UseXRealIP         bool     `json:"use_x_real_ip,omitempty" yaml:"use_x_real_ip,omitempty"`
 	TrustedProxies     []string `json:"trusted_proxies,omitempty" yaml:"trusted_proxies,omitempty"`
-	Debug              bool     `json:"debug,omitempty" yaml:"debug,omitempty"`
 }
 
 // CreateConfig creates the default plugin configuration.
@@ -88,7 +85,6 @@ type GeoIP struct {
 	useXForwardedFor    bool
 	useXRealIP          bool
 	trustedProxies      []*net.IPNet
-	debug               bool
 }
 
 // New creates a new GeoIP plugin.
@@ -133,19 +129,8 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		disableErrorHeader: config.DisableErrorHeader,
 		useXForwardedFor:   config.UseXForwardedFor,
 		useXRealIP:         config.UseXRealIP,
-		debug:              config.Debug,
 	}
 
-	// Validate database file exists and is readable
-	if config.Debug {
-		if fileInfo, err := os.Stat(config.Filename); err == nil {
-			log.Printf("[geoip] Database file: %s, Size: %d bytes", config.Filename, fileInfo.Size())
-		}
-		log.Printf("[geoip] Plugin initialized with config - CountryCode: '%s', City: '%s', Region: '%s'", 
-			config.CountryCode, config.City, config.Region)
-		log.Printf("[geoip] Plugin struct - countryCode: '%s', city: '%s', region: '%s'", 
-			plugin.countryCode, plugin.city, plugin.region)
-	}
 
 	// Parse trusted proxy CIDR ranges
 	if len(config.TrustedProxies) > 0 {
@@ -156,7 +141,6 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 				// Try parsing as single IP
 				ip := net.ParseIP(proxy)
 				if ip == nil {
-					log.Printf("[geoip] Warning: invalid trusted proxy '%s', ignoring", proxy)
 					continue
 				}
 				// Create a /32 or /128 CIDR for single IP
@@ -174,24 +158,8 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 }
 
 func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	// Debug: show request info at the start
-	rw.Header().Set("X-GeoIP-Debug-RemoteAddr", req.RemoteAddr)
-	rw.Header().Set("X-GeoIP-Debug-XForwardedFor", req.Header.Get("X-Forwarded-For"))
-	rw.Header().Set("X-GeoIP-Debug-XRealIP", req.Header.Get("X-Real-IP"))
-	
 	ip, err := g.getIP(req)
-	
-	// Debug: show what IP we detected
-	if ip != nil {
-		rw.Header().Set("X-GeoIP-Debug-IP", ip.String())
-	} else {
-		rw.Header().Set("X-GeoIP-Debug-IP", "nil")
-	}
-	
 	if err != nil {
-		if g.debug {
-			log.Printf("[geoip] Error getting IP: %v, RemoteAddr: %s", err, req.RemoteAddr)
-		}
 		if !g.disableErrorHeader {
 			req.Header.Set("X-GEOIP-ERROR", err.Error())
 			rw.Header().Set("X-GEOIP-ERROR", err.Error())
@@ -201,9 +169,6 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	if ip == nil {
-		if g.debug {
-			log.Printf("[geoip] Could not determine IP, RemoteAddr: %s", req.RemoteAddr)
-		}
 		if !g.disableErrorHeader {
 			req.Header.Set("X-GEOIP-ERROR", "could not determine client IP")
 			rw.Header().Set("X-GEOIP-ERROR", "could not determine client IP")
@@ -212,17 +177,8 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if g.debug {
-		log.Printf("[geoip] Looking up IP: %s (from RemoteAddr: %s)", ip.String(), req.RemoteAddr)
-		log.Printf("[geoip] Current config values - countryCode: '%s', city: '%s', region: '%s'", 
-			g.countryCode, g.city, g.region)
-	}
-
 	record, err := g.db.Get_all(ip.String())
 	if err != nil {
-		if g.debug {
-			log.Printf("[geoip] Lookup failed for IP %s: %v", ip.String(), err)
-		}
 		if !g.disableErrorHeader {
 			errorMsg := fmt.Sprintf("database lookup failed: %v", err)
 			req.Header.Set("X-GEOIP-ERROR", errorMsg)
@@ -230,15 +186,6 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		}
 		g.next.ServeHTTP(rw, req)
 		return
-	}
-
-	if g.debug {
-		log.Printf("[geoip] Lookup successful for IP %s: Country=%s, City=%s", 
-			ip.String(), record.Country_short, record.City)
-		log.Printf("[geoip] Record details - Country_short: '%s', City: '%s', Region: '%s'", 
-			record.Country_short, record.City, record.Region)
-		log.Printf("[geoip] Will set headers - countryCode config: '%s', city config: '%s'", 
-			g.countryCode, g.city)
 	}
 
 	// Add headers to request (for backend services)
@@ -407,25 +354,6 @@ func (g *GeoIP) addHeaders(req *http.Request, record IP2Locationrecord) {
 }
 
 func (g *GeoIP) addResponseHeaders(rw http.ResponseWriter, record IP2Locationrecord) {
-	// Test header - always set to verify plugin is working
-	rw.Header().Set("X-GeoIP-Test", "plugin-loaded")
-	// Debug headers - show what config was loaded
-	rw.Header().Set("X-GeoIP-Debug-CountryCode-Config", g.countryCode)
-	rw.Header().Set("X-GeoIP-Debug-City-Config", g.city)
-	rw.Header().Set("X-GeoIP-Debug-Region-Config", g.region)
-	// Debug headers - show what data was found in database
-	rw.Header().Set("X-GeoIP-Debug-Country-Found", record.Country_short)
-	if record.City != "" {
-		rw.Header().Set("X-GeoIP-Debug-City-Found", record.City)
-	} else {
-		rw.Header().Set("X-GeoIP-Debug-City-Found", "(empty)")
-	}
-	if record.Region != "" {
-		rw.Header().Set("X-GeoIP-Debug-Region-Found", record.Region)
-	} else {
-		rw.Header().Set("X-GeoIP-Debug-Region-Found", "(empty)")
-	}
-
 	// Country
 	if g.countryCode != "" && record.Country_short != "" {
 		rw.Header().Set(g.countryCode, record.Country_short)
