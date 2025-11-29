@@ -55,12 +55,12 @@ func CreateConfig() *Config {
 	}
 }
 
-// GeoIP plugin using MaxMind GeoIP2 database (no external dependencies).
+// GeoIP plugin using IP2Location BIN database (no external dependencies).
 type GeoIP struct {
 	next               http.Handler
 	name               string
 	fromHeader         string
-	db                 *MMDBReader
+	db                 *DB
 	// Header mappings - flattened
 	countryCode        string
 	countryName         string
@@ -97,9 +97,9 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		return nil, fmt.Errorf("filename is required")
 	}
 
-	db, err := OpenMMDB(config.Filename)
+	db, err := OpenDB(config.Filename)
 	if err != nil {
-		return nil, fmt.Errorf("error opening MaxMind database file: %w", err)
+		return nil, fmt.Errorf("error opening IP2Location database file: %w", err)
 	}
 
 	plugin := &GeoIP{
@@ -218,7 +218,7 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			g.countryCode, g.city, g.region)
 	}
 
-	record, err := g.db.LookupIP(ip)
+	record, err := g.db.Get_all(ip.String())
 	if err != nil {
 		if g.debug {
 			log.Printf("[geoip] Lookup failed for IP %s: %v", ip.String(), err)
@@ -234,13 +234,9 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	if g.debug {
 		log.Printf("[geoip] Lookup successful for IP %s: Country=%s, City=%s", 
-			ip.String(), record.Country.IsoCode, record.City.Names["en"])
-		log.Printf("[geoip] Record details - Country.IsoCode: '%s', City.Names['en']: '%s', Subdivisions: %d", 
-			record.Country.IsoCode, record.City.Names["en"], len(record.Subdivisions))
-		if len(record.Subdivisions) > 0 {
-			log.Printf("[geoip] First subdivision - Names['en']: '%s', IsoCode: '%s'", 
-				record.Subdivisions[0].Names["en"], record.Subdivisions[0].IsoCode)
-		}
+			ip.String(), record.Country_short, record.City)
+		log.Printf("[geoip] Record details - Country_short: '%s', City: '%s', Region: '%s'", 
+			record.Country_short, record.City, record.Region)
 		log.Printf("[geoip] Will set headers - countryCode config: '%s', city config: '%s'", 
 			g.countryCode, g.city)
 	}
@@ -352,91 +348,65 @@ func (g *GeoIP) isTrustedProxy(remoteAddr string) bool {
 	return false
 }
 
-func (g *GeoIP) addHeaders(req *http.Request, record *GeoIP2Record) {
+func (g *GeoIP) addHeaders(req *http.Request, record IP2Locationrecord) {
 	// Country
-	if g.countryCode != "" && record.Country.IsoCode != "" {
-		req.Header.Set(g.countryCode, record.Country.IsoCode)
+	if g.countryCode != "" && record.Country_short != "" {
+		req.Header.Set(g.countryCode, record.Country_short)
 	}
-	if g.countryName != "" && record.Country.Names["en"] != "" {
-		req.Header.Set(g.countryName, record.Country.Names["en"])
+	if g.countryName != "" && record.Country_long != "" {
+		req.Header.Set(g.countryName, record.Country_long)
 	}
 	// Legacy country fields
-	if g.countryShort != "" && record.Country.IsoCode != "" {
-		req.Header.Set(g.countryShort, record.Country.IsoCode)
+	if g.countryShort != "" && record.Country_short != "" {
+		req.Header.Set(g.countryShort, record.Country_short)
 	}
-	if g.countryLong != "" && record.Country.Names["en"] != "" {
-		req.Header.Set(g.countryLong, record.Country.Names["en"])
-	}
-
-	// Continent
-	if g.continentCode != "" && record.Continent.Code != "" {
-		req.Header.Set(g.continentCode, record.Continent.Code)
-	}
-	if g.continentName != "" && record.Continent.Names["en"] != "" {
-		req.Header.Set(g.continentName, record.Continent.Names["en"])
+	if g.countryLong != "" && record.Country_long != "" {
+		req.Header.Set(g.countryLong, record.Country_long)
 	}
 
-	// Subdivision (Region/State)
-	if len(record.Subdivisions) > 0 {
-		subdivision := record.Subdivisions[0]
-		if g.region != "" && subdivision.Names["en"] != "" {
-			req.Header.Set(g.region, subdivision.Names["en"])
-		}
-		if g.regionCode != "" && subdivision.IsoCode != "" {
-			req.Header.Set(g.regionCode, subdivision.IsoCode)
-		}
+	// Region
+	if g.region != "" && record.Region != "" {
+		req.Header.Set(g.region, record.Region)
 	}
+	// Note: IP2Location doesn't have region code, so regionCode won't be set
 
 	// City
-	if g.city != "" && record.City.Names["en"] != "" {
-		req.Header.Set(g.city, record.City.Names["en"])
+	if g.city != "" && record.City != "" {
+		req.Header.Set(g.city, record.City)
 	}
 
 	// Postal Code
-	if g.postalCode != "" && record.Postal.Code != "" {
-		req.Header.Set(g.postalCode, record.Postal.Code)
+	if g.postalCode != "" && record.Zipcode != "" {
+		req.Header.Set(g.postalCode, record.Zipcode)
 	}
 	// Legacy zipcode field
-	if g.zipcode != "" && record.Postal.Code != "" {
-		req.Header.Set(g.zipcode, record.Postal.Code)
+	if g.zipcode != "" && record.Zipcode != "" {
+		req.Header.Set(g.zipcode, record.Zipcode)
 	}
 
 	// Location
-	if g.latitude != "" && record.Location.Latitude != 0 {
-		req.Header.Set(g.latitude, strconv.FormatFloat(record.Location.Latitude, 'f', 6, 64))
+	if g.latitude != "" && record.Latitude != 0 {
+		req.Header.Set(g.latitude, strconv.FormatFloat(float64(record.Latitude), 'f', 6, 32))
 	}
-	if g.longitude != "" && record.Location.Longitude != 0 {
-		req.Header.Set(g.longitude, strconv.FormatFloat(record.Location.Longitude, 'f', 6, 64))
+	if g.longitude != "" && record.Longitude != 0 {
+		req.Header.Set(g.longitude, strconv.FormatFloat(float64(record.Longitude), 'f', 6, 32))
 	}
-	if g.timezone != "" && record.Location.TimeZone != "" {
-		req.Header.Set(g.timezone, record.Location.TimeZone)
+	if g.timezone != "" && record.Timezone != "" {
+		req.Header.Set(g.timezone, record.Timezone)
 	}
-	if g.accuracyRadius != "" && record.Location.AccuracyRadius != 0 {
-		req.Header.Set(g.accuracyRadius, strconv.Itoa(int(record.Location.AccuracyRadius)))
-	}
+	// Note: IP2Location doesn't have accuracy radius
 
-	// Traits (ISP, ASN, etc.)
-	if g.isp != "" && record.Traits.ISP != "" {
-		req.Header.Set(g.isp, record.Traits.ISP)
+	// ISP, Domain
+	if g.isp != "" && record.Isp != "" {
+		req.Header.Set(g.isp, record.Isp)
 	}
-	if g.asn != "" && record.Traits.AutonomousSystemNumber != 0 {
-		req.Header.Set(g.asn, strconv.Itoa(int(record.Traits.AutonomousSystemNumber)))
+	if g.domain != "" && record.Domain != "" {
+		req.Header.Set(g.domain, record.Domain)
 	}
-	if g.asnOrganization != "" && record.Traits.AutonomousSystemOrganization != "" {
-		req.Header.Set(g.asnOrganization, record.Traits.AutonomousSystemOrganization)
-	}
-	if g.domain != "" && record.Traits.Domain != "" {
-		req.Header.Set(g.domain, record.Traits.Domain)
-	}
-	if g.connectionType != "" && record.Traits.ConnectionType != "" {
-		req.Header.Set(g.connectionType, record.Traits.ConnectionType)
-	}
-	if g.userType != "" && record.Traits.UserType != "" {
-		req.Header.Set(g.userType, record.Traits.UserType)
-	}
+	// Note: IP2Location doesn't have ASN, ConnectionType, UserType
 }
 
-func (g *GeoIP) addResponseHeaders(rw http.ResponseWriter, record *GeoIP2Record) {
+func (g *GeoIP) addResponseHeaders(rw http.ResponseWriter, record IP2Locationrecord) {
 	// Test header - always set to verify plugin is working
 	rw.Header().Set("X-GeoIP-Test", "plugin-loaded")
 	// Debug headers - show what config was loaded
@@ -444,101 +414,71 @@ func (g *GeoIP) addResponseHeaders(rw http.ResponseWriter, record *GeoIP2Record)
 	rw.Header().Set("X-GeoIP-Debug-City-Config", g.city)
 	rw.Header().Set("X-GeoIP-Debug-Region-Config", g.region)
 	// Debug headers - show what data was found in database
-	rw.Header().Set("X-GeoIP-Debug-Country-Found", record.Country.IsoCode)
-	if cityName, ok := record.City.Names["en"]; ok {
-		rw.Header().Set("X-GeoIP-Debug-City-Found", cityName)
+	rw.Header().Set("X-GeoIP-Debug-Country-Found", record.Country_short)
+	if record.City != "" {
+		rw.Header().Set("X-GeoIP-Debug-City-Found", record.City)
 	} else {
 		rw.Header().Set("X-GeoIP-Debug-City-Found", "(empty)")
 	}
-	if len(record.Subdivisions) > 0 {
-		if regionName, ok := record.Subdivisions[0].Names["en"]; ok {
-			rw.Header().Set("X-GeoIP-Debug-Region-Found", regionName)
-		} else {
-			rw.Header().Set("X-GeoIP-Debug-Region-Found", "(empty)")
-		}
+	if record.Region != "" {
+		rw.Header().Set("X-GeoIP-Debug-Region-Found", record.Region)
 	} else {
-		rw.Header().Set("X-GeoIP-Debug-Region-Found", "(no subdivisions)")
+		rw.Header().Set("X-GeoIP-Debug-Region-Found", "(empty)")
 	}
 
 	// Country
-	if g.countryCode != "" && record.Country.IsoCode != "" {
-		rw.Header().Set(g.countryCode, record.Country.IsoCode)
+	if g.countryCode != "" && record.Country_short != "" {
+		rw.Header().Set(g.countryCode, record.Country_short)
 	}
-	if g.countryName != "" && record.Country.Names["en"] != "" {
-		rw.Header().Set(g.countryName, record.Country.Names["en"])
+	if g.countryName != "" && record.Country_long != "" {
+		rw.Header().Set(g.countryName, record.Country_long)
 	}
 	// Legacy country fields
-	if g.countryShort != "" && record.Country.IsoCode != "" {
-		rw.Header().Set(g.countryShort, record.Country.IsoCode)
+	if g.countryShort != "" && record.Country_short != "" {
+		rw.Header().Set(g.countryShort, record.Country_short)
 	}
-	if g.countryLong != "" && record.Country.Names["en"] != "" {
-		rw.Header().Set(g.countryLong, record.Country.Names["en"])
-	}
-
-	// Continent
-	if g.continentCode != "" && record.Continent.Code != "" {
-		rw.Header().Set(g.continentCode, record.Continent.Code)
-	}
-	if g.continentName != "" && record.Continent.Names["en"] != "" {
-		rw.Header().Set(g.continentName, record.Continent.Names["en"])
+	if g.countryLong != "" && record.Country_long != "" {
+		rw.Header().Set(g.countryLong, record.Country_long)
 	}
 
-	// Subdivision (Region/State)
-	if len(record.Subdivisions) > 0 {
-		subdivision := record.Subdivisions[0]
-		if g.region != "" && subdivision.Names["en"] != "" {
-			rw.Header().Set(g.region, subdivision.Names["en"])
-		}
-		if g.regionCode != "" && subdivision.IsoCode != "" {
-			rw.Header().Set(g.regionCode, subdivision.IsoCode)
-		}
+	// Region
+	if g.region != "" && record.Region != "" {
+		rw.Header().Set(g.region, record.Region)
 	}
+	// Note: IP2Location doesn't have region code
 
 	// City
-	if g.city != "" && record.City.Names["en"] != "" {
-		rw.Header().Set(g.city, record.City.Names["en"])
+	if g.city != "" && record.City != "" {
+		rw.Header().Set(g.city, record.City)
 	}
 
 	// Postal Code
-	if g.postalCode != "" && record.Postal.Code != "" {
-		rw.Header().Set(g.postalCode, record.Postal.Code)
+	if g.postalCode != "" && record.Zipcode != "" {
+		rw.Header().Set(g.postalCode, record.Zipcode)
 	}
 	// Legacy zipcode field
-	if g.zipcode != "" && record.Postal.Code != "" {
-		rw.Header().Set(g.zipcode, record.Postal.Code)
+	if g.zipcode != "" && record.Zipcode != "" {
+		rw.Header().Set(g.zipcode, record.Zipcode)
 	}
 
 	// Location
-	if g.latitude != "" && record.Location.Latitude != 0 {
-		rw.Header().Set(g.latitude, strconv.FormatFloat(record.Location.Latitude, 'f', 6, 64))
+	if g.latitude != "" && record.Latitude != 0 {
+		rw.Header().Set(g.latitude, strconv.FormatFloat(float64(record.Latitude), 'f', 6, 32))
 	}
-	if g.longitude != "" && record.Location.Longitude != 0 {
-		rw.Header().Set(g.longitude, strconv.FormatFloat(record.Location.Longitude, 'f', 6, 64))
+	if g.longitude != "" && record.Longitude != 0 {
+		rw.Header().Set(g.longitude, strconv.FormatFloat(float64(record.Longitude), 'f', 6, 32))
 	}
-	if g.timezone != "" && record.Location.TimeZone != "" {
-		rw.Header().Set(g.timezone, record.Location.TimeZone)
+	if g.timezone != "" && record.Timezone != "" {
+		rw.Header().Set(g.timezone, record.Timezone)
 	}
-	if g.accuracyRadius != "" && record.Location.AccuracyRadius != 0 {
-		rw.Header().Set(g.accuracyRadius, strconv.Itoa(int(record.Location.AccuracyRadius)))
-	}
+	// Note: IP2Location doesn't have accuracy radius
 
-	// Traits (ISP, ASN, etc.)
-	if g.isp != "" && record.Traits.ISP != "" {
-		rw.Header().Set(g.isp, record.Traits.ISP)
+	// ISP, Domain
+	if g.isp != "" && record.Isp != "" {
+		rw.Header().Set(g.isp, record.Isp)
 	}
-	if g.asn != "" && record.Traits.AutonomousSystemNumber != 0 {
-		rw.Header().Set(g.asn, strconv.Itoa(int(record.Traits.AutonomousSystemNumber)))
+	if g.domain != "" && record.Domain != "" {
+		rw.Header().Set(g.domain, record.Domain)
 	}
-	if g.asnOrganization != "" && record.Traits.AutonomousSystemOrganization != "" {
-		rw.Header().Set(g.asnOrganization, record.Traits.AutonomousSystemOrganization)
-	}
-	if g.domain != "" && record.Traits.Domain != "" {
-		rw.Header().Set(g.domain, record.Traits.Domain)
-	}
-	if g.connectionType != "" && record.Traits.ConnectionType != "" {
-		rw.Header().Set(g.connectionType, record.Traits.ConnectionType)
-	}
-	if g.userType != "" && record.Traits.UserType != "" {
-		rw.Header().Set(g.userType, record.Traits.UserType)
-	}
+	// Note: IP2Location doesn't have ASN, ConnectionType, UserType
 }

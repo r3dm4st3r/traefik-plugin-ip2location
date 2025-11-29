@@ -1,13 +1,13 @@
-displayName: MaxMind GeoIP2 plugin
+displayName: IP2Location plugin
 type: middleware
 
 import: github.com/r3dm4st3r/traefik-plugin-ip2location
 
-summary: '[geoip] Add Geo Headers from MaxMind'
+summary: '[geoip] Add Geo Headers from IP2Location'
 
 testData:
   fromHeader: 'X-Custom-IP'
-  filename: 'GeoLite2-City.mmdb'
+  filename: 'IP2LOCATION-LITE-DB11.BIN'
   # Flattened header configuration (no nested "headers:" for Yaegi compatibility)
   country_code: X-GEO-Country-Code
   country_name: X-GEO-Country-Name

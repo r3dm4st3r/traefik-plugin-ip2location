@@ -1,20 +1,20 @@
-# MaxMind GeoIP2 Traefik Plugin
+# IP2Location Traefik Plugin
 
-Traefik middleware plugin for enriching requests with geolocation information from MaxMind GeoIP2 database (.mmdb format).
+Traefik middleware plugin for enriching requests with geolocation information from IP2Location BIN database (.bin format).
 
 **Compatible with Traefik v3.6+**
 
 ## Features
 
 - ✅ **Traefik v3.6 Compatible** - Fully updated for the latest Traefik version
-- ✅ **MaxMind GeoIP2 Support** - Uses MaxMind GeoIP2 database format (.mmdb)
+- ✅ **IP2Location BIN Support** - Uses IP2Location BIN database format (.bin)
 - ✅ **Enhanced IP Detection** - Supports X-Forwarded-For, X-Real-IP, and custom headers
 - ✅ **Trusted Proxy Support** - Configure trusted proxy IP ranges for security
-- ✅ **Comprehensive Geo Data** - 20+ geolocation fields available
+- ✅ **Comprehensive Geo Data** - Country, Region, City, Latitude, Longitude, ISP, Domain, and more
 - ✅ **IPv4 and IPv6 Support** - Works with both IP address versions
 - ✅ **Error Handling** - Configurable error reporting
-- ✅ **High Performance** - Efficient MaxMind database lookups
-- ✅ **Backward Compatible** - Legacy field names supported
+- ✅ **High Performance** - Efficient IP2Location database lookups
+- ✅ **No External Dependencies** - Works with Traefik's Yaegi interpreter
 
 ## Configuration
 
@@ -38,10 +38,10 @@ Add the middleware configuration to your Traefik dynamic configuration:
 ```yaml
 http:
   middlewares:
-    maxmind-geo:
+    ip2location-geo:
       plugin:
         ip2location:
-          filename: /path/to/GeoLite2-City.mmdb
+          filename: /path/to/IP2LOCATION-LITE-DB11.BIN
           fromHeader: "" # Optional: custom header to read IP from
           useXForwardedFor: true # Use X-Forwarded-For header (default: true)
           useXRealIP: true # Use X-Real-IP header (default: true)
@@ -79,7 +79,7 @@ http:
     geo-headers:
       plugin:
         ip2location:
-          filename: /data/GeoLite2-City.mmdb
+          filename: /data/IP2LOCATION-LITE-DB11.BIN
           country_code: X-Country-Code
           city: X-City
 ```
@@ -100,15 +100,16 @@ zipcode: X-GEO-Zipcode  # Maps to postal_code
 
 **Required**
 
-The absolute path to the MaxMind GeoIP2 database file (.mmdb format).
+The absolute path to the IP2Location BIN database file (.bin format).
 
 Supported database types:
-- `GeoLite2-City.mmdb` - City-level data (recommended)
-- `GeoLite2-Country.mmdb` - Country-level data only
-- `GeoIP2-City.mmdb` - Commercial City database
-- `GeoIP2-Country.mmdb` - Commercial Country database
+- `IP2LOCATION-LITE-DB11.BIN` - City-level data with ISP (recommended)
+- `IP2LOCATION-LITE-DB1.BIN` - Country-level data only
+- `IP2LOCATION-LITE-DB3.BIN` - Region-level data
+- `IP2LOCATION-LITE-DB5.BIN` - City-level data
+- Commercial databases (DB1-DB25) with various data fields
 
-Example: `/data/GeoLite2-City.mmdb`
+Example: `/data/IP2LOCATION-LITE-DB11.BIN`
 
 ### FromHeader (`fromHeader`)
 
@@ -165,36 +166,34 @@ Header mappings are configured directly at the root level (flattened) for Traefi
 
 ### Location Fields
 
-- `CountryCode` - ISO 3166-1 alpha-2 country code (e.g., "US")
-- `CountryName` - Country name in English (e.g., "United States")
+- `CountryCode` / `CountryShort` - ISO 3166-1 alpha-2 country code (e.g., "US")
+- `CountryName` / `CountryLong` - Country name in English (e.g., "United States")
 - `Region` - Subdivision (state/province) name in English
-- `RegionCode` - ISO 3166-2 subdivision code
 - `City` - City name in English
-- `PostalCode` - Postal/ZIP code
-- `Latitude` - Latitude coordinate (6 decimal precision)
-- `Longitude` - Longitude coordinate (6 decimal precision)
+- `PostalCode` / `Zipcode` - Postal/ZIP code
+- `Latitude` - Latitude coordinate (float32, 6 decimal precision)
+- `Longitude` - Longitude coordinate (float32, 6 decimal precision)
 - `Timezone` - Time zone (e.g., "America/New_York")
-- `AccuracyRadius` - Accuracy radius in kilometers
-
-### Continent Fields
-
-- `ContinentCode` - Continent code (e.g., "NA")
-- `ContinentName` - Continent name in English (e.g., "North America")
 
 ### Network Fields
 
 - `Isp` - Internet Service Provider name
-- `Asn` - Autonomous System Number
-- `AsnOrganization` - Autonomous System Organization name
 - `Domain` - Domain name associated with the IP
-- `ConnectionType` - Connection type (e.g., "cable", "dialup")
-- `UserType` - User type (e.g., "business", "residential")
 
-### Legacy Fields (Backward Compatibility)
+### Additional IP2Location Fields (depending on database type)
 
-- `CountryShort` - Maps to `CountryCode`
-- `CountryLong` - Maps to `CountryName`
-- `Zipcode` - Maps to `PostalCode`
+- `Netspeed` - Internet connection speed
+- `Iddcode` - International Direct Dialing code
+- `Areacode` - Area code
+- `Weatherstationcode` - Weather station code
+- `Weatherstationname` - Weather station name
+- `Mcc` - Mobile country code
+- `Mnc` - Mobile network code
+- `Mobilebrand` - Mobile carrier brand
+- `Elevation` - Elevation in meters
+- `Usagetype` - Usage type
+
+**Note:** IP2Location databases have different field availability depending on the database type (DB1-DB25). Higher-numbered databases include more fields.
 
 ## IP Detection Priority
 
@@ -240,11 +239,11 @@ MaxMind databases are updated regularly. You can:
 
 - Traefik v3.0 or higher
 - Go 1.21 or higher (for building from source)
-- MaxMind GeoIP2 database file (.mmdb format)
+- IP2Location BIN database file (.bin format)
 
 ## No External Dependencies
 
-This plugin is designed to work with Traefik's plugin system, which does not support external Go module dependencies. The plugin includes a built-in MMDB reader implementation using only Go's standard library. This ensures compatibility with Traefik's plugin loading mechanism.
+This plugin is designed to work with Traefik's plugin system, which does not support external Go module dependencies. The plugin includes a built-in IP2Location BIN reader implementation using only Go's standard library. This ensures compatibility with Traefik's plugin loading mechanism.
 
 ## Building from Source
 
@@ -253,13 +252,13 @@ go mod download
 go build -o ip2location.so -buildmode=plugin .
 ```
 
-## Migration from IP2Location
+## Migration from MaxMind
 
-If you're migrating from IP2Location format:
+If you're migrating from MaxMind MMDB format:
 
-1. **Download MaxMind Database**: Get `GeoLite2-City.mmdb` from MaxMind
-2. **Update Configuration**: Change `filename` to point to the .mmdb file
-3. **Update Field Names**: Replace IP2Location-specific fields with MaxMind equivalents:
+1. **Download IP2Location Database**: Get `IP2LOCATION-LITE-DB11.BIN` from IP2Location
+2. **Update Configuration**: Change `filename` to point to the .bin file
+3. **Configure Headers**: Set up header mappings for the fields you need:
    - `CountryShort` → `CountryCode`
    - `CountryLong` → `CountryName`
    - `Zipcode` → `PostalCode`
@@ -288,7 +287,7 @@ http:
     geo-headers:
       plugin:
         ip2location:
-          filename: /etc/traefik/GeoLite2-City.mmdb
+          filename: /etc/traefik/IP2LOCATION-LITE-DB11.BIN
           trustedProxies:
             - "10.0.0.0/8"
           headers:
