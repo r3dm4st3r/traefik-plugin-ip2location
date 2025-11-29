@@ -222,6 +222,12 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if g.debug {
 		log.Printf("[geoip] Lookup successful for IP %s: Country=%s, City=%s", 
 			ip.String(), record.Country.IsoCode, record.City.Names["en"])
+		log.Printf("[geoip] Record details - Country.IsoCode: '%s', City.Names['en']: '%s', Subdivisions: %d", 
+			record.Country.IsoCode, record.City.Names["en"], len(record.Subdivisions))
+		if len(record.Subdivisions) > 0 {
+			log.Printf("[geoip] First subdivision - Names['en']: '%s', IsoCode: '%s'", 
+				record.Subdivisions[0].Names["en"], record.Subdivisions[0].IsoCode)
+		}
 		log.Printf("[geoip] Will set headers - countryCode config: '%s', city config: '%s'", 
 			g.countryCode, g.city)
 	}
@@ -424,6 +430,22 @@ func (g *GeoIP) addResponseHeaders(rw http.ResponseWriter, record *GeoIP2Record)
 	rw.Header().Set("X-GeoIP-Debug-CountryCode-Config", g.countryCode)
 	rw.Header().Set("X-GeoIP-Debug-City-Config", g.city)
 	rw.Header().Set("X-GeoIP-Debug-Region-Config", g.region)
+	// Debug headers - show what data was found in database
+	rw.Header().Set("X-GeoIP-Debug-Country-Found", record.Country.IsoCode)
+	if cityName, ok := record.City.Names["en"]; ok {
+		rw.Header().Set("X-GeoIP-Debug-City-Found", cityName)
+	} else {
+		rw.Header().Set("X-GeoIP-Debug-City-Found", "(empty)")
+	}
+	if len(record.Subdivisions) > 0 {
+		if regionName, ok := record.Subdivisions[0].Names["en"]; ok {
+			rw.Header().Set("X-GeoIP-Debug-Region-Found", regionName)
+		} else {
+			rw.Header().Set("X-GeoIP-Debug-Region-Found", "(empty)")
+		}
+	} else {
+		rw.Header().Set("X-GeoIP-Debug-Region-Found", "(no subdivisions)")
+	}
 
 	// Country
 	if g.countryCode != "" && record.Country.IsoCode != "" {
