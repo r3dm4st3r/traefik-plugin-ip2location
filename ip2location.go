@@ -174,7 +174,20 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 }
 
 func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	// Debug: show request info at the start
+	rw.Header().Set("X-GeoIP-Debug-RemoteAddr", req.RemoteAddr)
+	rw.Header().Set("X-GeoIP-Debug-XForwardedFor", req.Header.Get("X-Forwarded-For"))
+	rw.Header().Set("X-GeoIP-Debug-XRealIP", req.Header.Get("X-Real-IP"))
+	
 	ip, err := g.getIP(req)
+	
+	// Debug: show what IP we detected
+	if ip != nil {
+		rw.Header().Set("X-GeoIP-Debug-IP", ip.String())
+	} else {
+		rw.Header().Set("X-GeoIP-Debug-IP", "nil")
+	}
+	
 	if err != nil {
 		if g.debug {
 			log.Printf("[geoip] Error getting IP: %v, RemoteAddr: %s", err, req.RemoteAddr)
