@@ -141,6 +141,10 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		if fileInfo, err := os.Stat(config.Filename); err == nil {
 			log.Printf("[geoip] Database file: %s, Size: %d bytes", config.Filename, fileInfo.Size())
 		}
+		log.Printf("[geoip] Plugin initialized with config - CountryCode: '%s', City: '%s', Region: '%s'", 
+			config.CountryCode, config.City, config.Region)
+		log.Printf("[geoip] Plugin struct - countryCode: '%s', city: '%s', region: '%s'", 
+			plugin.countryCode, plugin.city, plugin.region)
 	}
 
 	// Parse trusted proxy CIDR ranges
@@ -197,6 +201,8 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	if g.debug {
 		log.Printf("[geoip] Looking up IP: %s (from RemoteAddr: %s)", ip.String(), req.RemoteAddr)
+		log.Printf("[geoip] Current config values - countryCode: '%s', city: '%s', region: '%s'", 
+			g.countryCode, g.city, g.region)
 	}
 
 	record, err := g.db.LookupIP(ip)
@@ -216,6 +222,8 @@ func (g *GeoIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if g.debug {
 		log.Printf("[geoip] Lookup successful for IP %s: Country=%s, City=%s", 
 			ip.String(), record.Country.IsoCode, record.City.Names["en"])
+		log.Printf("[geoip] Will set headers - countryCode config: '%s', city config: '%s'", 
+			g.countryCode, g.city)
 	}
 
 	// Add headers to request (for backend services)
@@ -412,8 +420,10 @@ func (g *GeoIP) addHeaders(req *http.Request, record *GeoIP2Record) {
 func (g *GeoIP) addResponseHeaders(rw http.ResponseWriter, record *GeoIP2Record) {
 	// Test header - always set to verify plugin is working
 	rw.Header().Set("X-GeoIP-Test", "plugin-loaded")
-	// Debug: show what config was loaded
-	rw.Header().Set("X-GeoIP-Config-Country", g.countryCode)
+	// Debug headers - show what config was loaded
+	rw.Header().Set("X-GeoIP-Debug-CountryCode-Config", g.countryCode)
+	rw.Header().Set("X-GeoIP-Debug-City-Config", g.city)
+	rw.Header().Set("X-GeoIP-Debug-Region-Config", g.region)
 
 	// Country
 	if g.countryCode != "" && record.Country.IsoCode != "" {

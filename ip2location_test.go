@@ -21,10 +21,8 @@ func TestGeoIP(t *testing.T) {
 	}
 
 	config := &Config{
-		Filename: dbPath,
-		Headers: Headers{
-			CountryCode: "X-GEO-Country",
-		},
+		Filename:    dbPath,
+		CountryCode: "X-GEO-Country", // Flattened config
 	}
 
 	handler, err := New(context.Background(), &httpHandlerMock{}, config, "test")
@@ -38,11 +36,90 @@ func TestGeoIP(t *testing.T) {
 
 	handler.ServeHTTP(rw, req)
 
+	// Check request headers
 	v := req.Header.Get("X-GEO-Country")
 	if v == "" {
-		t.Log("X-GEO-Country header not set (may be expected if IP not in database)")
+		t.Log("X-GEO-Country header not set in request (may be expected if IP not in database)")
 	} else {
-		t.Logf("Country code: %s", v)
+		t.Logf("Country code in request: %s", v)
+	}
+
+	// Check response headers - these should ALWAYS be set
+	testHeader := rw.Header().Get("X-GeoIP-Test")
+	if testHeader != "plugin-loaded" {
+		t.Errorf("Expected X-GeoIP-Test header to be 'plugin-loaded', got: '%s'", testHeader)
+	} else {
+		t.Logf("✓ Response header X-GeoIP-Test: %s", testHeader)
+	}
+
+	// Check debug config headers
+	debugCountry := rw.Header().Get("X-GeoIP-Debug-CountryCode-Config")
+	t.Logf("Debug CountryCode config: '%s'", debugCountry)
+	if debugCountry != "X-GEO-Country" {
+		t.Errorf("Expected X-GeoIP-Debug-CountryCode-Config to be 'X-GEO-Country', got: '%s'", debugCountry)
+	}
+
+	// Check if actual geo header was set in response
+	geoCountry := rw.Header().Get("X-GEO-Country")
+	if geoCountry != "" {
+		t.Logf("✓ Response header X-GEO-Country: %s", geoCountry)
+	} else {
+		t.Log("X-GEO-Country not set in response (IP may not be in database)")
+	}
+}
+
+// TestGeoIP_ResponseHeaders tests that response headers are always set
+func TestGeoIP_ResponseHeaders(t *testing.T) {
+	dbPath := "GeoLite2-City.mmdb"
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		t.Skipf("Skipping test: MaxMind database file %s not found", dbPath)
+	}
+
+	config := &Config{
+		Filename:    dbPath,
+		CountryCode: "X-Test-Country",
+		City:        "X-Test-City",
+		Region:      "X-Test-Region",
+	}
+
+	handler, err := New(context.Background(), &httpHandlerMock{}, config, "test")
+	if err != nil {
+		t.Fatalf("Failed to create plugin: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/test", nil)
+	req.RemoteAddr = "8.8.8.8:34000"
+	rw := httptest.NewRecorder()
+
+	handler.ServeHTTP(rw, req)
+
+	// Test header should ALWAYS be present
+	testHeader := rw.Header().Get("X-GeoIP-Test")
+	if testHeader != "plugin-loaded" {
+		t.Fatalf("X-GeoIP-Test header missing or incorrect. Expected 'plugin-loaded', got: '%s'", testHeader)
+	}
+	t.Logf("✓ X-GeoIP-Test: %s", testHeader)
+
+	// Debug headers should show config values
+	debugCountry := rw.Header().Get("X-GeoIP-Debug-CountryCode-Config")
+	if debugCountry != "X-Test-Country" {
+		t.Errorf("X-GeoIP-Debug-CountryCode-Config incorrect. Expected 'X-Test-Country', got: '%s'", debugCountry)
+	} else {
+		t.Logf("✓ X-GeoIP-Debug-CountryCode-Config: %s", debugCountry)
+	}
+
+	debugCity := rw.Header().Get("X-GeoIP-Debug-City-Config")
+	if debugCity != "X-Test-City" {
+		t.Errorf("X-GeoIP-Debug-City-Config incorrect. Expected 'X-Test-City', got: '%s'", debugCity)
+	} else {
+		t.Logf("✓ X-GeoIP-Debug-City-Config: %s", debugCity)
+	}
+
+	debugRegion := rw.Header().Get("X-GeoIP-Debug-Region-Config")
+	if debugRegion != "X-Test-Region" {
+		t.Errorf("X-GeoIP-Debug-Region-Config incorrect. Expected 'X-Test-Region', got: '%s'", debugRegion)
+	} else {
+		t.Logf("✓ X-GeoIP-Debug-Region-Config: %s", debugRegion)
 	}
 }
 
@@ -56,9 +133,7 @@ func TestGeoIP_XForwardedFor(t *testing.T) {
 	config := &Config{
 		Filename:         dbPath,
 		UseXForwardedFor: true,
-		Headers: Headers{
-			CountryCode: "X-GEO-Country",
-		},
+		CountryCode:      "X-GEO-Country", // Flattened config
 	}
 
 	handler, err := New(context.Background(), &httpHandlerMock{}, config, "test")
@@ -79,6 +154,12 @@ func TestGeoIP_XForwardedFor(t *testing.T) {
 	} else {
 		t.Logf("Country code from X-Forwarded-For: %s", v)
 	}
+
+	// Check response headers
+	testHeader := rw.Header().Get("X-GeoIP-Test")
+	if testHeader != "plugin-loaded" {
+		t.Errorf("X-GeoIP-Test header missing. Expected 'plugin-loaded', got: '%s'", testHeader)
+	}
 }
 
 // TestGeoIP_CustomHeader tests custom header IP extraction
@@ -91,9 +172,7 @@ func TestGeoIP_CustomHeader(t *testing.T) {
 	config := &Config{
 		Filename:   dbPath,
 		FromHeader: "X-Custom-IP",
-		Headers: Headers{
-			CountryCode: "X-GEO-Country",
-		},
+		CountryCode: "X-GEO-Country", // Flattened config
 	}
 
 	handler, err := New(context.Background(), &httpHandlerMock{}, config, "test")
@@ -113,6 +192,12 @@ func TestGeoIP_CustomHeader(t *testing.T) {
 		t.Log("X-GEO-Country header not set (may be expected if IP not in database)")
 	} else {
 		t.Logf("Country code from custom header: %s", v)
+	}
+
+	// Check response headers
+	testHeader := rw.Header().Get("X-GeoIP-Test")
+	if testHeader != "plugin-loaded" {
+		t.Errorf("X-GeoIP-Test header missing. Expected 'plugin-loaded', got: '%s'", testHeader)
 	}
 }
 
@@ -138,27 +223,25 @@ func TestGeoIP_AllFields(t *testing.T) {
 	}
 
 	config := &Config{
-		Filename: dbPath,
-		Headers: Headers{
-			CountryCode:     "X-Country-Code",
-			CountryName:     "X-Country-Name",
-			Region:          "X-Region",
-			RegionCode:      "X-Region-Code",
-			City:           "X-City",
-			PostalCode:      "X-Postal-Code",
-			Latitude:        "X-Latitude",
-			Longitude:       "X-Longitude",
-			Timezone:        "X-TimeZone",
-			ContinentCode:   "X-Continent-Code",
-			ContinentName:   "X-Continent-Name",
-			Isp:             "X-ISP",
-			Asn:             "X-ASN",
-			AsnOrganization: "X-ASN-Org",
-			Domain:          "X-Domain",
-			ConnectionType:  "X-Connection-Type",
-			UserType:        "X-User-Type",
-			AccuracyRadius:  "X-Accuracy-Radius",
-		},
+		Filename:         dbPath,
+		CountryCode:      "X-Country-Code", // Flattened config
+		CountryName:      "X-Country-Name",
+		Region:           "X-Region",
+		RegionCode:       "X-Region-Code",
+		City:             "X-City",
+		PostalCode:       "X-Postal-Code",
+		Latitude:         "X-Latitude",
+		Longitude:        "X-Longitude",
+		Timezone:         "X-TimeZone",
+		ContinentCode:    "X-Continent-Code",
+		ContinentName:    "X-Continent-Name",
+		Isp:              "X-ISP",
+		Asn:              "X-ASN",
+		AsnOrganization:  "X-ASN-Org",
+		Domain:           "X-Domain",
+		ConnectionType:   "X-Connection-Type",
+		UserType:         "X-User-Type",
+		AccuracyRadius:   "X-Accuracy-Radius",
 	}
 
 	handler, err := New(context.Background(), &httpHandlerMock{}, config, "test")
@@ -172,10 +255,24 @@ func TestGeoIP_AllFields(t *testing.T) {
 
 	handler.ServeHTTP(rw, req)
 
-	// Check that at least some headers were set
+	// Check request headers
 	countryCode := req.Header.Get("X-Country-Code")
 	if countryCode != "" {
-		t.Logf("Successfully retrieved country code: %s", countryCode)
+		t.Logf("Request header X-Country-Code: %s", countryCode)
+	}
+
+	// Check response headers - test header should always be present
+	testHeader := rw.Header().Get("X-GeoIP-Test")
+	if testHeader != "plugin-loaded" {
+		t.Errorf("Expected X-GeoIP-Test header, got: '%s'", testHeader)
+	} else {
+		t.Logf("✓ Response header X-GeoIP-Test: %s", testHeader)
+	}
+
+	// Check response geo headers
+	respCountryCode := rw.Header().Get("X-Country-Code")
+	if respCountryCode != "" {
+		t.Logf("✓ Response header X-Country-Code: %s", respCountryCode)
 	}
 }
 
@@ -187,12 +284,10 @@ func TestGeoIP_LegacyFields(t *testing.T) {
 	}
 
 	config := &Config{
-		Filename: dbPath,
-		Headers: Headers{
-			CountryShort: "X-GEO-Country",
-			CountryLong:  "X-GEO-Country-Name",
-			Zipcode:      "X-GEO-Zipcode",
-		},
+		Filename:     dbPath,
+		CountryShort: "X-GEO-Country", // Flattened config
+		CountryLong:  "X-GEO-Country-Name",
+		Zipcode:      "X-GEO-Zipcode",
 	}
 
 	handler, err := New(context.Background(), &httpHandlerMock{}, config, "test")
@@ -209,5 +304,11 @@ func TestGeoIP_LegacyFields(t *testing.T) {
 	countryShort := req.Header.Get("X-GEO-Country")
 	if countryShort != "" {
 		t.Logf("Legacy CountryShort field: %s", countryShort)
+	}
+
+	// Check response headers
+	testHeader := rw.Header().Get("X-GeoIP-Test")
+	if testHeader != "plugin-loaded" {
+		t.Errorf("X-GeoIP-Test header missing. Expected 'plugin-loaded', got: '%s'", testHeader)
 	}
 }
